@@ -62,22 +62,21 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ─── API Routes (registered incrementally per step) ────────────
-// Step 2  → User Auth
-// Step 3  → User Profile + Patients
-// Step 4  → Subscription
-// Step 5  → Doctor Auth + Profile
-// Step 6  → Admin
-// Step 7  → Schedules
-// Step 8  → Search
-// Step 9  → Bookings
-// Step 10 → Queue Management
-// Step 12 → Prescriptions
-// Step 13 → Reviews
+// ─── API Routes ─────────────────────────────────────────────────
+const userRoutes = require('./src/routes/user.routes');
 
-app.use('/api/v1', (req, res) => {
-  res.status(200).json({ success: true, message: 'DocPoint API v1 — Routes coming in next steps' });
-});
+app.use('/api/v1/users', userRoutes);
+
+// Steps 3–13 routes registered incrementally:
+// Step 3  → /api/v1/patients
+// Step 4  → /api/v1/subscription
+// Step 5  → /api/v1/doctors
+// Step 6  → /api/v1/admin
+// Step 7  → /api/v1/schedules
+// Step 8  → /api/v1/search
+// Step 9  → /api/v1/bookings
+// Step 12 → /api/v1/prescriptions
+// Step 13 → /api/v1/reviews
 
 // ─── 404 + Error Handlers ───────────────────────────────────────
 app.use(notFound);
