@@ -74,14 +74,15 @@ app.get('/health', (req, res) => {
 const userRoutes = require('./src/routes/user.routes');
 const patientRoutes = require('./src/routes/patient.routes');
 const subscriptionRoutes = require('./src/routes/subscription.routes');
+const doctorRoutes = require('./src/routes/doctor.routes');
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/patients', patientRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
+app.use('/api/v1/doctors', doctorRoutes);
 
 // Steps 5–13 routes registered incrementally:
-// Step 5  → /api/v1/doctors
-// Step 6  → /api/v1/admin
+// Step 5  → /api/v1/admin
 // Step 7  → /api/v1/schedules
 // Step 8  → /api/v1/search
 // Step 9  → /api/v1/bookings

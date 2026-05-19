@@ -63,6 +63,22 @@ const verifyAdmin = asyncHandler(async (req, res, next) => {
   next();
 });
 
+// ─── Doctor (any status — for registration flow) ─────────────────
+// Same as verifyDoctor but no approval_status check
+const verifyDoctorAny = asyncHandler(async (req, res, next) => {
+  const token = extractBearer(req);
+  if (!token) throw new AppError('Authentication required', 401);
+
+  const decoded = verifyDoctorToken(token);
+
+  const doctor = await Doctor.findById(decoded.id);
+  if (!doctor) throw new AppError('Doctor not found', 401);
+  if (doctor.is_blocked) throw new AppError('Account blocked. Contact support.', 403);
+
+  req.doctor = doctor;
+  next();
+});
+
 // ─── Optional user auth (doesn't fail if no token) ──────────────
 const optionalUser = asyncHandler(async (req, res, next) => {
   const token = extractBearer(req);
@@ -78,4 +94,4 @@ const optionalUser = asyncHandler(async (req, res, next) => {
   next();
 });
 
-module.exports = { verifyUser, verifyDoctor, verifyAdmin, optionalUser };
+module.exports = { verifyUser, verifyDoctor, verifyDoctorAny, verifyAdmin, optionalUser };

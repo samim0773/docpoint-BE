@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [███░░░░░░░░░░░░] 3/15 steps  (20%)
+Backend  [████░░░░░░░░░░░] 4/15 steps  (27%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [███░░░░░░░░░░░░░░░░░░░░░░] 3/25 steps  (12%)
+Overall  [████░░░░░░░░░░░░░░░░░░░░░] 4/25 steps  (16%)
 ```
 
 ---
@@ -14,10 +14,10 @@ Overall  [███░░░░░░░░░░░░░░░░░░░░�
 | # | Step | Status | Key Files |
 |---|------|--------|-----------|
 | 1 | Project Setup + All 10 Models + Server Scaffold | ✅ DONE | package.json, server.js, src/config/*, src/models/* (10 models) |
-| 2 | User Auth — OTP + JWT + Refresh + Auth Middleware | ✅ DONE | src/models/Admin.js, src/services/sms.js, src/utils/(jwt,otp,tokenHash).js, src/middleware/auth.js, src/validators/(validate,user.validators).js, src/controllers/(userAuth,userProfile).controller.js, src/routes/user.routes.js |
-| 3 | Family Patients CRUD + User Subscription + Razorpay Webhook | ✅ DONE | src/services/razorpay.js, src/validators/(patient,subscription).validators.js, src/controllers/(patients,subscription).controller.js, src/routes/(patient,subscription).routes.js |
-| 4 | Doctor Auth + Registration + Profile + Cloudinary | ⏳ NEXT | |
-| 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt | ⏳ | |
+| 2 | User Auth — OTP + JWT + Refresh + Auth Middleware | ✅ DONE | src/models/Admin.js, src/services/sms.js, src/utils/(jwt,otp,tokenHash).js, src/middleware/auth.js, src/controllers/(userAuth,userProfile).controller.js |
+| 3 | Family Patients CRUD + User Subscription + Razorpay Webhook | ✅ DONE | src/services/razorpay.js, src/controllers/(patients,subscription).controller.js, src/routes/(patient,subscription).routes.js |
+| 4 | Doctor Auth + Registration + Profile + Cloudinary + Distance | ✅ DONE | src/utils/citiesCoords.js, src/services/maps.js, src/validators/doctor.validators.js, src/controllers/(doctorAuth,doctorProfile).controller.js, src/routes/doctor.routes.js |
+| 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt + Stats | ⏳ NEXT | |
 | 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ⏳ | |
 | 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ⏳ | |
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ⏳ | |
@@ -47,108 +47,121 @@ Overall  [███░░░░░░░░░░░░░░░░░░░░�
 
 ---
 
-## Step 3 — What Was Built
+## Step 4 — What Was Built
 
 ### New Files
 ```
 src/
+├── utils/
+│   └── citiesCoords.js         # 55+ Indian city → [lng, lat] lookup (no external API)
 ├── services/
-│   └── razorpay.js           # createOrder, verifyPaymentSignature, verifyWebhookSignature, initiateRefund
+│   └── maps.js                 # Google Maps Distance Matrix API wrapper (dev mock if no key)
 ├── validators/
-│   ├── patient.validators.js # addPatient / updatePatient rules (enum validation for gender/relation/blood_group)
-│   └── subscription.validators.js # createOrder / confirmPayment rules
+│   └── doctor.validators.js    # registerDoctor / updateProfile / doctorId rules
 ├── controllers/
-│   ├── patients.controller.js     # addPatient, listPatients, updatePatient, deletePatient
-│   └── subscription.controller.js # getPlans, createSubscriptionOrder, confirmSubscription, getSubscriptionStatus, handleRazorpayWebhook
+│   ├── doctorAuth.controller.js    # sendOtp, verifyOtp, refreshToken, logout (doctor)
+│   └── doctorProfile.controller.js # registerDoctor, uploadDocuments, getPublicProfile,
+│                                    # updateProfile, getDoctorAvailability, getDoctorDistance
 └── routes/
-    ├── patient.routes.js      # /api/v1/patients CRUD
-    └── subscription.routes.js # /api/v1/subscription plans/order/confirm/status
+    └── doctor.routes.js        # All /api/v1/doctors/* routes (static before /:id params)
 ```
 
-### Route Map (Step 3)
+### Updated Files
+- `src/middleware/auth.js` — added `verifyDoctorAny` (no approval_status check, for registration flow)
+- `server.js` — registered `/api/v1/doctors`
+
+### Route Map (Step 4)
 | Method | Endpoint | Auth |
 |--------|----------|------|
-| POST | /api/v1/patients | verifyUser |
-| GET | /api/v1/patients | verifyUser |
-| PATCH | /api/v1/patients/:id | verifyUser (ownership check) |
-| DELETE | /api/v1/patients/:id | verifyUser (ownership check, soft delete) |
-| GET | /api/v1/subscription/plans | Public |
-| POST | /api/v1/subscription/order | verifyUser |
-| POST | /api/v1/subscription/confirm | verifyUser |
-| GET | /api/v1/subscription/status | verifyUser |
-| POST | /webhooks/razorpay | Webhook Secret (raw body, outside /api/v1) |
+| POST | /api/v1/doctors/auth/send-otp | Public (otpLimiter) |
+| POST | /api/v1/doctors/auth/verify-otp | Public (authLimiter) |
+| POST | /api/v1/doctors/auth/refresh | Cookie |
+| POST | /api/v1/doctors/auth/logout | Cookie |
+| POST | /api/v1/doctors/register | verifyDoctorAny |
+| POST | /api/v1/doctors/register/documents | verifyDoctorAny + multer |
+| PATCH | /api/v1/doctors/profile | verifyDoctor (approved only) |
+| GET | /api/v1/doctors/:id | Public |
+| GET | /api/v1/doctors/:id/availability | Public |
+| GET | /api/v1/doctors/:id/distance | verifyUser |
 
 ### Key Design Decisions
-- **Webhook mounted BEFORE express.json()**: uses `express.raw()` — raw Buffer preserved for HMAC-SHA256 verification
-- **Idempotency**: both `/confirm` and webhook handler check `payment.status === 'captured'` before re-processing
-- **Loyalty renewal**: if subscription still has >7 days left, renewal is blocked. At ≤7 days, new expiry extends from existing `expires_at` (not from today)
-- **MongoDB transaction**: `_activateSubscription` runs inside a session to atomically update both Payment and User
-- **Max 6 patients**: enforced in controller with `countDocuments` before insert
-- **Ownership check**: `findOne({ _id, user_id: req.user._id })` pattern — no separate ownership middleware needed
-- **timingSafeEqual**: Razorpay signature comparison uses `crypto.timingSafeEqual` to prevent timing attacks
+- **verifyDoctorAny vs verifyDoctor**: registration + doc upload use `verifyDoctorAny` (pending doctors can complete profile). PATCH /profile uses `verifyDoctor` (approved only)
+- **Re-registration guard**: if `approval_status === 'approved'`, the register endpoint returns 400 — use PATCH /profile instead
+- **Geo coords from city name**: `citiesCoords.js` covers 55+ cities with no external API call. City not in map → descriptive 400 error with support instructions
+- **Static routes before param routes**: `/auth/*`, `/register`, `/profile` declared before `/:id` to prevent Express routing conflicts
+- **Maps dev fallback**: if `GOOGLE_MAPS_API_KEY` is missing, `maps.js` returns mock data instead of crashing
+- **Document naming**: `req.body.names` JSON array optionally overrides `file.originalname` for human-readable doc names
 
 ---
 
-## STEP 4 CONTINUATION PROMPT
+## STEP 5 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 4: Doctor Auth + Registration + Profile
+DocPoint backend Step 5: Admin Panel
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
-Stack: Node.js + Express + MongoDB + Cloudinary
-PROGRESS: Steps 1-3 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+Stack: Node.js + Express + MongoDB
+PROGRESS: Steps 1-4 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
 
-Build Step 4 — Doctor Auth + Registration + Profile:
+Build Step 5 — Admin Auth + Full Admin Panel:
 
-PART A — Doctor Auth (separate JWT_DOCTOR_SECRET, separate endpoints)
-1. POST /api/v1/doctors/auth/send-otp
-   - Same OTP flow as user (brute-force guards, MSG91 sms service)
-   - Create Doctor record if first time (mobile only)
-2. POST /api/v1/doctors/auth/verify-otp
-   - Verify OTP, issue Doctor JWT (signed with JWT_DOCTOR_SECRET)
-   - Refresh token in HttpOnly cookie (same cookie name: refreshToken)
-   - Return: access_token, doctor basic info, is_profile_complete, approval_status
-3. POST /api/v1/doctors/auth/logout
-   - Clear refresh token from DB + cookie
+PART A — Admin Auth
+1. POST /api/v1/admin/auth/login
+   - Email + bcrypt password (Admin model already exists from Step 2)
+   - Issue Admin JWT (JWT_ADMIN_SECRET, 8hr expiry)
+   - No refresh token for admin (8hr session is enough)
+2. GET  /api/v1/admin/auth/me — verifyAdmin: return admin name + email
 
-PART B — Doctor Registration (multi-step profile, Cloudinary document upload)
-4. POST /api/v1/doctors/register
-   - Auth: verifyDoctor middleware BUT allow unapproved doctors (pending)
-   - Create a separate verifyDoctorAny middleware (no approval check)
-   - Fields: name, email, gender, specialization, qualification[], experience_years,
-             registration_number, clinic_name, clinic_address{street,city,state,pincode},
-             consultation_fee, avg_consult_minutes, bio
-   - Location: derive from clinic_address.city using a cities-to-coords map
-               (hardcode top 20 Indian cities with lat/lng — no external API needed here)
-   - Set is_profile_complete: true after registration
-   - Doctors start with approval_status: pending — admin must approve (Step 5)
+PART B — Doctor Management
+3. GET   /api/v1/admin/doctors?status=pending|approved|rejected&page=1&limit=20
+   - Paginated list, filter by approval_status
+   - Return: name, mobile, specialization, clinic_address.city, createdAt, is_profile_complete
+4. GET   /api/v1/admin/doctors/:id — Full doctor details for review
+5. PATCH /api/v1/admin/doctors/:id/approve
+   - Set approval_status: approved
+   - Send SMS to doctor (sendDoctorApproval from sms.js)
+6. PATCH /api/v1/admin/doctors/:id/reject
+   - Body: { reason } (required)
+   - Set approval_status: rejected, rejection_reason: reason
+   - Send SMS to doctor
 
-5. POST /api/v1/doctors/register/documents
-   - Auth: verifyDoctorAny
-   - Upload up to 3 documents (degree, registration cert, ID proof) via Cloudinary
-   - Use uploadDoctorDoc.array('documents', 3) multer middleware
-   - Push to doctor.documents array
+PART C — User Management
+7. GET  /api/v1/admin/users?page=1&limit=20&search=mobilOrName
+   - Paginated, optional search by name or mobile
+   - Return: name, mobile, city, subscription status, createdAt, is_blocked
+8. PATCH /api/v1/admin/users/:id/block   — toggle is_blocked: true
+9. PATCH /api/v1/admin/users/:id/unblock — toggle is_blocked: false
 
-PART C — Doctor Profile (public + protected)
-6. GET  /api/v1/doctors/:id           — Public doctor profile
-7. PATCH /api/v1/doctors/profile      — verifyDoctor (approved only), update editable fields
-8. GET  /api/v1/doctors/:id/availability — Public: returns available dates + slot info for next 30 days
-   - Query DailySchedule for the doctor, return dates with remaining slots
-9. GET  /api/v1/doctors/:id/distance  — verifyUser: Google Maps Distance Matrix API
-   - from: req.user.city, to: doctor.clinic_address.city
-   - Return: distance_text, duration_text, distance_meters, duration_seconds
+PART D — Subscription Plan Management
+10. GET   /api/v1/admin/plans          — list all UserPlans (active + inactive)
+11. POST  /api/v1/admin/plans          — create new plan { name, price, duration_days, grace_days, booking_cap, description }
+12. PATCH /api/v1/admin/plans/:id      — update plan fields
+13. PATCH /api/v1/admin/plans/:id/deactivate — set is_active: false
 
-Middleware: add verifyDoctorAny to src/middleware/auth.js
-            (same as verifyDoctor but without approval_status check)
+PART E — Platform Dashboard Stats
+14. GET /api/v1/admin/stats
+    Return single object:
+    - total_users: count of all users
+    - active_subscriptions: users with subscription.is_active=true AND expires_at > now
+    - total_doctors: approved doctors count
+    - pending_doctors: pending approval count
+    - bookings_today: appointments created today (any status except cancelled)
+    - revenue_mtd: sum of Payment.amount where type in [subscription,appointment], status=captured, createdAt >= start of current month
 
-Validators: src/validators/doctor.validators.js
-Controllers: src/controllers/doctorAuth.controller.js
-             src/controllers/doctorProfile.controller.js
-Routes: src/routes/doctor.routes.js
+PART F — Review Moderation
+15. GET   /api/v1/admin/reviews?page=1&limit=20&hidden=false
+    - Paginated reviews, filterable by is_hidden
+    - Populate: doctor name, patient name, rating, comment
+16. PATCH /api/v1/admin/reviews/:id/hide   — set is_hidden: true, recalculate doctor rating
+17. PATCH /api/v1/admin/reviews/:id/unhide — set is_hidden: false, recalculate doctor rating
 
-Register /api/v1/doctors on server.js.
-Update PROGRESS.md: mark Step 4 done, add Step 5 prompt.
+Validators: src/validators/admin.validators.js
+Controller: src/controllers/admin.controller.js (single file, all actions)
+Route: src/routes/admin.routes.js
+
+Register /api/v1/admin on server.js.
+Update PROGRESS.md: mark Step 5 done, add Step 6 prompt.
 ```
