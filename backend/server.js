@@ -19,6 +19,14 @@ const { globalLimiter } = require('./src/middleware/rateLimiter');
 const app = express();
 const server = http.createServer(app);
 
+// ─── Webhook Route (MUST be before express.json — needs raw Buffer) ──
+const { handleRazorpayWebhook } = require('./src/controllers/subscription.controller');
+app.post(
+  '/webhooks/razorpay',
+  express.raw({ type: 'application/json' }),
+  handleRazorpayWebhook
+);
+
 // ─── Security Middleware ────────────────────────────────────────
 app.use(helmet());
 app.use(
@@ -64,12 +72,14 @@ app.get('/health', (req, res) => {
 
 // ─── API Routes ─────────────────────────────────────────────────
 const userRoutes = require('./src/routes/user.routes');
+const patientRoutes = require('./src/routes/patient.routes');
+const subscriptionRoutes = require('./src/routes/subscription.routes');
 
 app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/patients', patientRoutes);
+app.use('/api/v1/subscription', subscriptionRoutes);
 
-// Steps 3–13 routes registered incrementally:
-// Step 3  → /api/v1/patients
-// Step 4  → /api/v1/subscription
+// Steps 5–13 routes registered incrementally:
 // Step 5  → /api/v1/doctors
 // Step 6  → /api/v1/admin
 // Step 7  → /api/v1/schedules
