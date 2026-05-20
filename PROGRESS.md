@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [████░░░░░░░░░░░] 4/15 steps  (27%)
+Backend  [█████░░░░░░░░░░] 5/15 steps  (33%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [████░░░░░░░░░░░░░░░░░░░░░] 4/25 steps  (16%)
+Overall  [█████░░░░░░░░░░░░░░░░░░░░] 5/25 steps  (20%)
 ```
 
 ---
@@ -17,8 +17,8 @@ Overall  [████░░░░░░░░░░░░░░░░░░░�
 | 2 | User Auth — OTP + JWT + Refresh + Auth Middleware | ✅ DONE | src/models/Admin.js, src/services/sms.js, src/utils/(jwt,otp,tokenHash).js, src/middleware/auth.js, src/controllers/(userAuth,userProfile).controller.js |
 | 3 | Family Patients CRUD + User Subscription + Razorpay Webhook | ✅ DONE | src/services/razorpay.js, src/controllers/(patients,subscription).controller.js, src/routes/(patient,subscription).routes.js |
 | 4 | Doctor Auth + Registration + Profile + Cloudinary + Distance | ✅ DONE | src/utils/citiesCoords.js, src/services/maps.js, src/validators/doctor.validators.js, src/controllers/(doctorAuth,doctorProfile).controller.js, src/routes/doctor.routes.js |
-| 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt + Stats | ⏳ NEXT | |
-| 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ⏳ | |
+| 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt + Stats | ✅ DONE | src/validators/admin.validators.js, src/controllers/admin.controller.js, src/routes/admin.routes.js |
+| 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ⏳ NEXT | |
 | 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ⏳ | |
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ⏳ | |
 | 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ⏳ | |
@@ -44,6 +44,53 @@ Overall  [████░░░░░░░░░░░░░░░░░░░�
 | 22 | Live Queue Tracker (Socket.IO) | ⏳ |
 | 23 | Prescriptions + Reviews Screens | ⏳ |
 | 24 | Admin Panel — Approval + Users + Plans + Stats Dashboard | ⏳ |
+
+---
+
+## Step 5 — What Was Built
+
+### New Files
+```
+src/
+├── validators/
+│   └── admin.validators.js         # loginRules, rejectDoctorRules, createPlanRules, updatePlanRules + shared ID param validators
+├── controllers/
+│   └── admin.controller.js         # All 17 admin actions in 6 parts (A–F)
+└── routes/
+    └── admin.routes.js             # All /api/v1/admin/* routes with verifyAdmin + validators
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/admin`
+
+### Route Map (Step 5)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| POST | /api/v1/admin/auth/login | Public |
+| GET | /api/v1/admin/auth/me | verifyAdmin |
+| GET | /api/v1/admin/doctors | verifyAdmin |
+| GET | /api/v1/admin/doctors/:id | verifyAdmin |
+| PATCH | /api/v1/admin/doctors/:id/approve | verifyAdmin |
+| PATCH | /api/v1/admin/doctors/:id/reject | verifyAdmin |
+| GET | /api/v1/admin/users | verifyAdmin |
+| PATCH | /api/v1/admin/users/:id/block | verifyAdmin |
+| PATCH | /api/v1/admin/users/:id/unblock | verifyAdmin |
+| GET | /api/v1/admin/plans | verifyAdmin |
+| POST | /api/v1/admin/plans | verifyAdmin |
+| PATCH | /api/v1/admin/plans/:id | verifyAdmin |
+| PATCH | /api/v1/admin/plans/:id/deactivate | verifyAdmin |
+| GET | /api/v1/admin/stats | verifyAdmin |
+| GET | /api/v1/admin/reviews | verifyAdmin |
+| PATCH | /api/v1/admin/reviews/:id/hide | verifyAdmin |
+| PATCH | /api/v1/admin/reviews/:id/unhide | verifyAdmin |
+
+### Key Design Decisions
+- **No refresh token for admin**: 8-hour JWT-only session — no cookie, no rotation, no redis entry
+- **Fire-and-forget SMS**: approveDoctor/rejectDoctor use `.catch()` on sendDoctorApproval so SMS failure never blocks the response
+- **blockUser clears refresh_token**: ensures blocked users are immediately logged out on their next API call
+- **Regex search escaping**: listUsers escapes special regex chars before building `$regex` filter (prevents ReDoS)
+- **MTD revenue via Payment.aggregate**: single `$match + $group` pipeline filters type + status + month boundary, returns 0 if no payments
+- **recalculateDoctorRating after hide/unhide**: keeps doctor.rating.average consistent with visible reviews only
 
 ---
 
@@ -94,74 +141,66 @@ src/
 
 ---
 
-## STEP 5 CONTINUATION PROMPT
+## STEP 6 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 5: Admin Panel
+DocPoint backend Step 6: Doctor Schedule
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
 Stack: Node.js + Express + MongoDB
-PROGRESS: Steps 1-4 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+PROGRESS: Steps 1-5 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
 
-Build Step 5 — Admin Auth + Full Admin Panel:
+Build Step 6 — Doctor Schedule: Weekly Template + Daily Auto-gen (Cron):
 
-PART A — Admin Auth
-1. POST /api/v1/admin/auth/login
-   - Email + bcrypt password (Admin model already exists from Step 2)
-   - Issue Admin JWT (JWT_ADMIN_SECRET, 8hr expiry)
-   - No refresh token for admin (8hr session is enough)
-2. GET  /api/v1/admin/auth/me — verifyAdmin: return admin name + email
+Existing models (already created in Step 1, do NOT recreate):
+- WeeklySchedule: { doctor_id, day_of_week (0-6), slots: [{start_time, end_time, max_patients}], is_active }
+- DailySchedule: { doctor_id, date, slots: [{start_time, end_time, max_patients, booked_count}], queue_status (open/paused/closed), current_token, is_holiday }
 
-PART B — Doctor Management
-3. GET   /api/v1/admin/doctors?status=pending|approved|rejected&page=1&limit=20
-   - Paginated list, filter by approval_status
-   - Return: name, mobile, specialization, clinic_address.city, createdAt, is_profile_complete
-4. GET   /api/v1/admin/doctors/:id — Full doctor details for review
-5. PATCH /api/v1/admin/doctors/:id/approve
-   - Set approval_status: approved
-   - Send SMS to doctor (sendDoctorApproval from sms.js)
-6. PATCH /api/v1/admin/doctors/:id/reject
-   - Body: { reason } (required)
-   - Set approval_status: rejected, rejection_reason: reason
-   - Send SMS to doctor
+PART A — Weekly Template (doctor-facing)
+1. GET    /api/v1/schedules/template
+   - Return doctor's weekly template (all 7 days, even if no slots set)
+   - verifyDoctor (approved only)
 
-PART C — User Management
-7. GET  /api/v1/admin/users?page=1&limit=20&search=mobilOrName
-   - Paginated, optional search by name or mobile
-   - Return: name, mobile, city, subscription status, createdAt, is_blocked
-8. PATCH /api/v1/admin/users/:id/block   — toggle is_blocked: true
-9. PATCH /api/v1/admin/users/:id/unblock — toggle is_blocked: false
+2. PUT    /api/v1/schedules/template
+   - Upsert the full weekly template: body is array of { day_of_week, slots, is_active }
+   - Each slot: { start_time (HH:MM), end_time (HH:MM), max_patients (int, min 1, max 50) }
+   - Validate no overlapping slots within the same day
+   - verifyDoctor
 
-PART D — Subscription Plan Management
-10. GET   /api/v1/admin/plans          — list all UserPlans (active + inactive)
-11. POST  /api/v1/admin/plans          — create new plan { name, price, duration_days, grace_days, booking_cap, description }
-12. PATCH /api/v1/admin/plans/:id      — update plan fields
-13. PATCH /api/v1/admin/plans/:id/deactivate — set is_active: false
+3. PATCH  /api/v1/schedules/template/:day
+   - Update a single day (day = 0-6)
+   - Body: { slots, is_active }
+   - verifyDoctor
 
-PART E — Platform Dashboard Stats
-14. GET /api/v1/admin/stats
-    Return single object:
-    - total_users: count of all users
-    - active_subscriptions: users with subscription.is_active=true AND expires_at > now
-    - total_doctors: approved doctors count
-    - pending_doctors: pending approval count
-    - bookings_today: appointments created today (any status except cancelled)
-    - revenue_mtd: sum of Payment.amount where type in [subscription,appointment], status=captured, createdAt >= start of current month
+PART B — Daily Schedule Management (doctor-facing)
+4. GET    /api/v1/schedules/daily?from=YYYY-MM-DD&to=YYYY-MM-DD
+   - Return daily schedules in date range (max 31 days)
+   - verifyDoctor
 
-PART F — Review Moderation
-15. GET   /api/v1/admin/reviews?page=1&limit=20&hidden=false
-    - Paginated reviews, filterable by is_hidden
-    - Populate: doctor name, patient name, rating, comment
-16. PATCH /api/v1/admin/reviews/:id/hide   — set is_hidden: true, recalculate doctor rating
-17. PATCH /api/v1/admin/reviews/:id/unhide — set is_hidden: false, recalculate doctor rating
+5. PATCH  /api/v1/schedules/daily/:date/holiday
+   - Mark a specific date as holiday (is_holiday: true, clear all slots)
+   - Body: { is_holiday: boolean }
+   - verifyDoctor
 
-Validators: src/validators/admin.validators.js
-Controller: src/controllers/admin.controller.js (single file, all actions)
-Route: src/routes/admin.routes.js
+6. GET    /api/v1/schedules/:doctorId/available-dates?month=YYYY-MM
+   - Public endpoint: return list of dates in the month that have open slots
+   - Used by booking flow to show calendar
 
-Register /api/v1/admin on server.js.
-Update PROGRESS.md: mark Step 5 done, add Step 6 prompt.
+PART C — Auto-generation Cron Job
+7. node-cron job: runs at 00:05 every day
+   - For each approved doctor, generate DailySchedule for (today + 30 days) if not already exists
+   - Copy from WeeklySchedule template for that day_of_week
+   - Skip holidays and dates already generated
+   - Log summary: doctors processed, schedules created, errors
+
+Validators: src/validators/schedule.validators.js
+Controller: src/controllers/schedule.controller.js
+Route: src/routes/schedule.routes.js
+Cron: src/jobs/scheduleGenerator.js (job definition) + register in server.js
+
+Register /api/v1/schedules on server.js.
+Update PROGRESS.md: mark Step 6 done, add Step 7 prompt.
 ```
