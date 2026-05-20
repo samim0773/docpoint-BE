@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [████████░░░░░░░] 8/15 steps  (53%)
+Backend  [█████████░░░░░░] 9/15 steps  (60%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [████████░░░░░░░░░░░░░░░░░] 8/25 steps  (32%)
+Overall  [█████████░░░░░░░░░░░░░░░░] 9/25 steps  (36%)
 ```
 
 ---
@@ -21,8 +21,8 @@ Overall  [████████░░░░░░░░░░░░░░░�
 | 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ✅ DONE | src/validators/schedule.validators.js, src/controllers/schedule.controller.js, src/routes/schedule.routes.js, src/jobs/scheduleGenerator.js |
 | 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ✅ DONE | src/validators/search.validators.js, src/controllers/search.controller.js, src/routes/search.routes.js |
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ✅ DONE | src/validators/booking.validators.js, src/controllers/booking.controller.js, src/routes/booking.routes.js |
-| 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ⏳ NEXT | |
-| 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ⏳ | |
+| 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ✅ DONE | src/controllers/queue.controller.js, src/routes/queue.routes.js |
+| 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ⏳ NEXT | |
 | 11 | Prescriptions — Write + History + Edit (24hr window) | ⏳ | |
 | 12 | Reviews + Rating Aggregation | ⏳ | |
 | 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ | |
@@ -251,12 +251,48 @@ src/
 
 ---
 
-## STEP 9 CONTINUATION PROMPT
+## Step 9 — What Was Built
+
+### New Files
+```
+src/
+├── controllers/
+│   └── queue.controller.js     # 8 handlers: startQueue, pauseQueue, resumeQueue, completeQueue, callNext, markDone, markNoShow, getQueueStatus
+└── routes/
+    └── queue.routes.js         # All /api/v1/queue/:scheduleId/* routes + inline validators
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/queue`
+
+### Route Map (Step 9)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| POST | /api/v1/queue/:scheduleId/start | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/pause | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/resume | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/complete | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/call-next | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/done | verifyDoctor |
+| POST | /api/v1/queue/:scheduleId/no-show | verifyDoctor |
+| GET | /api/v1/queue/:scheduleId/status | Public |
+
+### Key Design Decisions
+- **`getOwnedSchedule` helper**: all doctor routes find the schedule with `{ _id, doctor_id: req.doctor._id }` — ownership check + existence check in one DB call
+- **`call-next` pre-flight**: checks `Appointment.exists({ status:'confirmed', token_number: { $gte: nextToken } })` before incrementing so we never advance to an empty token
+- **Aggregation pipeline `updateMany` for ETAs**: `$multiply: [{ $subtract: ['$token_number', nextToken] }, avg_consult_minutes]` inside a pipeline update — field-dependent calculation in a single bulk write (MongoDB 4.2+)
+- **`complete` cascades no_shows**: `Appointment.updateMany({ status:'confirmed' })` marks all remaining confirmed appointments no_show atomically
+- **`markDone` finds by status**: finds the `in_consultation` appointment rather than by token_number (doctor can only have one patient at a time, so this is unambiguous)
+- **`markNoShow` accepts both confirmed and in_consultation**: handles the case where the token was called but the patient left before being seen
+
+---
+
+## STEP 10 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 9: Doctor Queue Management
+DocPoint backend Step 10: Real-Time Queue
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
@@ -317,4 +353,58 @@ Route: src/routes/queue.routes.js
 
 Register /api/v1/queue on server.js.
 Update PROGRESS.md: mark Step 9 done, add Step 10 prompt.
+```
+
+---
+
+## STEP 10 — OVERRIDE PROMPT
+
+The content above this section was the old Step 9 prompt that got prepended during generation. Use the prompt below instead:
+
+```
+DocPoint backend Step 10: Real-Time Queue
+
+Project: DocPoint Smart Doctor Appointment Platform
+Working directory: e:\Projects\DocPoint\workplace\backend
+Stack: Node.js + Express + MongoDB
+PROGRESS: Steps 1-9 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+
+Build Step 10 — Real-Time Queue: Socket.IO + MongoDB Change Streams:
+
+Existing infrastructure:
+- server.js already creates `const server = http.createServer(app)` — attach Socket.IO to this
+- src/controllers/queue.controller.js already mutates DailySchedule + Appointment
+- src/config/db.js already connects Mongoose
+
+PART A — Socket.IO Server Setup
+1. src/socket/index.js
+   - Initialize Socket.IO on the http.Server with CORS matching process.env.ALLOWED_ORIGINS
+   - Namespace: /queue
+   - On connection: client joins a room named by scheduleId
+     socket.on('join-queue', ({ scheduleId }) => socket.join(scheduleId))
+   - Export: initSocket(server) → returns io instance
+   - Export: getIO() → returns the singleton io instance (throws if not initialized)
+
+PART B — Change Stream Watcher
+2. src/socket/queueWatcher.js
+   - Watch DailySchedule collection for updates to queue_status or current_token
+   - Watch Appointment collection for status changes
+   - On DailySchedule change: emit 'queue-updated' to room scheduleId with { queue_status, current_token, avg_consult_minutes }
+   - On Appointment change: emit 'token-called' (in_consultation) or 'appointment-updated' (done/no_show) to room scheduleId with appointment data
+   - Export: startQueueWatcher() — call after DB connects
+   - Handle change stream errors + resume tokens for reconnection
+
+PART C — Integration
+3. Wire up in server.js:
+   - Call initSocket(server) after creating http.Server
+   - Call startQueueWatcher() inside startServer() after connectDB()
+   - getIO() available everywhere via the singleton
+
+File locations:
+- src/socket/index.js
+- src/socket/queueWatcher.js
+- Update server.js
+
+No new REST routes needed.
+Update PROGRESS.md: mark Step 10 done, add Step 11 prompt.
 ```
