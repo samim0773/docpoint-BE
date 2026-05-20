@@ -1,5 +1,6 @@
 const DailySchedule = require('../models/DailySchedule');
 const Appointment = require('../models/Appointment');
+const { enqueueSms } = require('../jobs/smsQueue');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiResponse = require('../utils/apiResponse');
@@ -158,6 +159,7 @@ const callNext = asyncHandler(async (req, res) => {
   logger.info(
     `Called token ${nextToken}: schedule=${schedule._id} appt=${calledAppointment?._id ?? 'none'}`
   );
+  if (calledAppointment) enqueueSms('token_called', calledAppointment._id);
 
   return ApiResponse.success(res, `Token ${nextToken} called`, {
     current_token: nextToken,

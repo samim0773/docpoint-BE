@@ -112,6 +112,7 @@ const PORT = process.env.PORT || 5000;
 
 const { startScheduleGenerator } = require('./src/jobs/scheduleGenerator');
 const { startQueueWatcher } = require('./src/socket/queueWatcher');
+const { startSmsWorker } = require('./src/jobs/index');
 
 const startServer = async () => {
   await connectDB();
@@ -124,6 +125,7 @@ const startServer = async () => {
 
   startScheduleGenerator();
   startQueueWatcher(); // requires replica set — silently skips in standalone dev
+  startSmsWorker();    // requires Redis — silently skips if unavailable
 
   server.listen(PORT, () => {
     logger.info(`DocPoint server running on port ${PORT} [${process.env.NODE_ENV}]`);

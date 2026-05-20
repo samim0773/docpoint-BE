@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [████████████░░░] 12/15 steps  (80%)
+Backend  [█████████████░░] 13/15 steps  (87%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [████████████░░░░░░░░░░░░░] 12/25 steps  (48%)
+Overall  [█████████████░░░░░░░░░░░░] 13/25 steps  (52%)
 ```
 
 ---
@@ -25,8 +25,8 @@ Overall  [████████████░░░░░░░░░░░�
 | 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ✅ DONE | src/socket/index.js, src/socket/queueWatcher.js |
 | 11 | Prescriptions — Write + History + Edit (24hr window) | ✅ DONE | src/validators/prescription.validators.js, src/controllers/prescription.controller.js, src/routes/prescription.routes.js |
 | 12 | Reviews + Rating Aggregation | ✅ DONE | src/validators/review.validators.js, src/controllers/review.controller.js, src/routes/review.routes.js |
-| 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ NEXT | |
-| 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ | |
+| 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ✅ DONE | src/jobs/smsQueue.js, src/jobs/smsWorker.js, src/jobs/index.js |
+| 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ NEXT | |
 
 ---
 
@@ -387,9 +387,72 @@ src/
 
 ---
 
-## STEP 13 CONTINUATION PROMPT
+## Step 13 — What Was Built
+
+### New Files
+```
+src/jobs/
+├── smsQueue.js    # BullMQ Queue ('sms') + enqueueSms(type, appointmentId) fire-and-forget helper
+├── smsWorker.js   # BullMQ Worker — handlers for booking_confirmed, booking_cancelled, token_called
+└── index.js       # startSmsWorker() — called from server.js startServer()
+```
+
+### Updated Files
+- `src/controllers/booking.controller.js` — `enqueueSms('booking_confirmed', ...)` after confirm; `enqueueSms('booking_cancelled', ...)` after cancel
+- `src/controllers/queue.controller.js` — `enqueueSms('token_called', ...)` after callNext marks in_consultation
+- `server.js` — imports `startSmsWorker` from `src/jobs/index` and calls it in `startServer()`
+
+### Key Design Decisions
+- **`bullmq` not `bull`**: package.json has `bullmq` v5 — uses `Queue`/`Worker` class API, not the older `.process()` method
+- **REDIS_URL → ioredis opts**: BullMQ requires host/port options, not a URL string; `parseRedisOpts()` parses `REDIS_URL` with the native `URL` class and sets `maxRetriesPerRequest: null` (required for BullMQ blocking commands)
+- **Shared `connection` object**: `smsQueue.js` exports the parsed `connection`; `smsWorker.js` imports it so both Queue and Worker use identical config without duplication
+- **Worker does one DB query per job**: `Appointment.findById(id).populate('doctor_id', 'name').populate('user_id', 'mobile')` — avoids N separate lookups; `user_id.mobile` gives the patient's contact number
+- **Fire-and-forget enqueue**: `enqueueSms` calls `queue.add(...).catch(logger.warn)` — never awaited in controllers, never throws
+- **Graceful Redis absence**: `startSmsWorker()` wrapped in try-catch — if Redis is down at startup, a warning is logged and the server continues (same pattern as `startQueueWatcher`)
+- **Job retry policy**: 3 attempts, exponential backoff starting at 2s; last 200 failed jobs retained in Redis for debugging
+
+---
+
+## STEP 14 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
+
+```
+DocPoint backend Step 14: Production Hardening
+
+Project: DocPoint Smart Doctor Appointment Platform
+Working directory: e:\Projects\DocPoint\workplace\backend
+Stack: Node.js + Express + MongoDB + Redis
+PROGRESS: Steps 1-13 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+
+Build Step 14 — Production Hardening:
+
+PART A — Redis Response Cache
+- Cache GET /api/v1/search/doctors results for 60s (key: full query string)
+- Cache GET /api/v1/reviews/doctor/:doctorId for 120s
+- Cache GET /api/v1/queue/:scheduleId/status for 10s
+- Invalidate search + review cache on any write that affects them (new booking → invalidate schedule cache; new review → invalidate doctor reviews cache)
+- Helper: src/utils/cache.js — getCache(key), setCache(key, data, ttl), delCache(key)
+
+PART B — Security Headers + Rate Limiting
+- Endpoint-specific rate limiters (already have globalLimiter):
+  - authLimiter: 10 req/15min for POST /api/v1/users/auth/* and POST /api/v1/doctors/auth/*
+  - bookingLimiter: 20 req/hour per IP for POST /api/v1/bookings
+  - queueLimiter: 60 req/min for queue actions (already have searchLimiter pattern to follow)
+- Add X-Request-ID header to all responses for tracing
+
+PART C — PM2 Ecosystem File
+- Create ecosystem.config.js at project root (not inside backend/)
+- 2 instances, cluster mode, auto-restart, memory limit 512MB
+- env_production: NODE_ENV=production, PORT=5000
+
+No new routes. No PROGRESS.md step numbers change for frontend.
+Update PROGRESS.md: mark Step 14 done, note backend complete, add Step 15 (frontend) prompt.
+```
+
+---
+
+## STEP 13 CONTINUATION PROMPT (archived — already done)
 
 ```
 DocPoint backend Step 13: SMS Jobs — Bull MQ + MSG91

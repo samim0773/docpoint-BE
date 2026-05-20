@@ -6,6 +6,7 @@ const DailySchedule = require('../models/DailySchedule');
 const UserPlan = require('../models/UserPlan');
 const User = require('../models/User');
 const { createOrder, verifyPaymentSignature, initiateRefund } = require('../services/razorpay');
+const { enqueueSms } = require('../jobs/smsQueue');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiResponse = require('../utils/apiResponse');
@@ -181,6 +182,7 @@ const confirmBooking = asyncHandler(async (req, res) => {
   });
 
   logger.info(`Booking confirmed: appt=${appointment._id}`);
+  enqueueSms('booking_confirmed', appointment._id);
 
   return ApiResponse.success(res, 'Appointment confirmed', appointment);
 });
@@ -241,6 +243,7 @@ const cancelBooking = asyncHandler(async (req, res) => {
   logger.info(
     `Booking cancelled: appt=${appointment._id} by=${isDoctor ? 'doctor' : 'user'}`
   );
+  enqueueSms('booking_cancelled', appointment._id);
 
   return ApiResponse.success(res, 'Appointment cancelled', appointment);
 });
