@@ -16,8 +16,13 @@ const errorHandler = require('./src/middleware/errorHandler');
 const notFound = require('./src/middleware/notFound');
 const { globalLimiter } = require('./src/middleware/rateLimiter');
 
+const { initSocket } = require('./src/socket/index');
+
 const app = express();
 const server = http.createServer(app);
+
+// Socket.IO must be attached before any route or middleware setup
+initSocket(server);
 
 // ─── Webhook Route (MUST be before express.json — needs raw Buffer) ──
 const { handleRazorpayWebhook } = require('./src/controllers/subscription.controller');
@@ -91,8 +96,7 @@ app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/queue', queueRoutes);
 
-// Steps 10–13 routes registered incrementally:
-// Step 10 → Socket.IO + Change Streams (no new REST prefix)
+// Steps 11–13 routes registered incrementally:
 // Step 11 → /api/v1/prescriptions
 // Step 12 → /api/v1/reviews
 
@@ -104,6 +108,7 @@ app.use(errorHandler);
 const PORT = process.env.PORT || 5000;
 
 const { startScheduleGenerator } = require('./src/jobs/scheduleGenerator');
+const { startQueueWatcher } = require('./src/socket/queueWatcher');
 
 const startServer = async () => {
   await connectDB();
@@ -115,6 +120,7 @@ const startServer = async () => {
   }
 
   startScheduleGenerator();
+  startQueueWatcher(); // requires replica set — silently skips in standalone dev
 
   server.listen(PORT, () => {
     logger.info(`DocPoint server running on port ${PORT} [${process.env.NODE_ENV}]`);

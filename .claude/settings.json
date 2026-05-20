@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('socket.io'\\); console.log\\('ok'\\)\")"
+    ],
+    "additionalDirectories": [
+      "e:\\Projects\\DocPoint\\workplace\\backend\\src\\socket"
+    ]
+  }
+}

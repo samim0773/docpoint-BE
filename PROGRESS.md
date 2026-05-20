@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [█████████░░░░░░] 9/15 steps  (60%)
+Backend  [██████████░░░░░] 10/15 steps  (67%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [█████████░░░░░░░░░░░░░░░░] 9/25 steps  (36%)
+Overall  [██████████░░░░░░░░░░░░░░░] 10/25 steps  (40%)
 ```
 
 ---
@@ -21,9 +21,9 @@ Overall  [█████████░░░░░░░░░░░░░░�
 | 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ✅ DONE | src/validators/schedule.validators.js, src/controllers/schedule.controller.js, src/routes/schedule.routes.js, src/jobs/scheduleGenerator.js |
 | 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ✅ DONE | src/validators/search.validators.js, src/controllers/search.controller.js, src/routes/search.routes.js |
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ✅ DONE | src/validators/booking.validators.js, src/controllers/booking.controller.js, src/routes/booking.routes.js |
-| 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ✅ DONE | src/controllers/queue.controller.js, src/routes/queue.routes.js |
-| 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ⏳ NEXT | |
-| 11 | Prescriptions — Write + History + Edit (24hr window) | ⏳ | |
+| 9 |    | ✅ DONE | src/controllers/queue.controller.js, src/routes/queue.routes.js |
+| 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ✅ DONE | src/socket/index.js, src/socket/queueWatcher.js |
+| 11 | Prescriptions — Write + History + Edit (24hr window) | ⏳ NEXT | |
 | 12 | Reviews + Rating Aggregation | ⏳ | |
 | 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ | |
 | 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ | |
@@ -287,124 +287,93 @@ src/
 
 ---
 
-## STEP 10 CONTINUATION PROMPT
+## Step 10 — What Was Built
+
+### New Files
+```
+src/socket/
+├── index.js          # initSocket(httpServer) + getIO() singleton; /queue namespace; join-queue room handler
+└── queueWatcher.js   # MongoDB Change Stream watchers for DailySchedule + Appointment; auto-reconnect with resume token
+```
+
+### Updated Files
+- `server.js` — `initSocket(server)` called immediately after `http.createServer(app)`; `startQueueWatcher()` called inside `startServer()` after `connectDB()`
+
+### Socket.IO Event Contract (namespace: `/queue`)
+| Direction | Event | Payload |
+|-----------|-------|---------|
+| Client → Server | `join-queue` | `{ scheduleId }` |
+| Client → Server | `leave-queue` | `{ scheduleId }` |
+| Server → Room | `queue-updated` | `{ schedule_id, queue_status, current_token, avg_consult_minutes, pause_reason }` |
+| Server → Room | `token-called` | `{ appointment_id, token_number, status, patient_id, eta_minutes }` |
+| Server → Room | `appointment-updated` | `{ appointment_id, token_number, status, patient_id, eta_minutes }` |
+
+### Key Design Decisions
+- **`initSocket` before middleware**: Socket.IO attached to `http.Server` before any Express middleware — ensures the upgrade handshake is handled before body parsers see the request
+- **Named namespace `/queue`**: isolates queue traffic from any future namespaces (e.g. `/notifications`)
+- **Resume token persistence**: each stream stores its own `resumeToken` in closure; after a reconnect, it passes `{ resumeAfter: resumeToken }` so no events are lost during the 5-second backoff
+- **Standalone dev fallback**: `startQueueWatcher()` wraps both `watch()` calls in a try-catch; if MongoDB is standalone (no replica set), it logs a warning and continues — server doesn't crash
+- **`$match` on `updatedFields`**: pipeline stage filters at the server before the change event reaches Node, reducing network traffic on busy collections
+- **`fullDocument: 'updateLookup'`**: needed because `updateMany` (used in `completeQueue` + ETA recalc) doesn't embed full docs by default
+
+---
+
+## STEP 11 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 10: Real-Time Queue
+DocPoint backend Step 11: Prescriptions
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
 Stack: Node.js + Express + MongoDB
-PROGRESS: Steps 1-8 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+PROGRESS: Steps 1-10 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
 
-Build Step 9 — Doctor Queue Management: Call/Done/No-show + Pause/Resume:
+Build Step 11 — Prescriptions: Write + History + Edit (24hr window):
 
-Existing models (do NOT recreate):
-- DailySchedule: { doctor_id, date, queue_status (not_started/active/paused/completed), current_token, max_patients, booked_count, pause_reason, avg_consult_minutes }
-- Appointment: { doctor_id, schedule_id, token_number, status (pending_payment/confirmed/in_consultation/done/no_show/cancelled), eta_minutes, user_id, patient_id }
+Existing model (do NOT recreate):
+- Prescription: { doctor_id, patient_id, appointment_id, medicines: [{name, dosage, frequency, duration, instructions}], notes, is_finalized, created_at }
+- Appointment: { doctor_id, patient_id, user_id, schedule_id, status, prescription_id }
 
-PART A — Queue Control (doctor only)
-1. POST /api/v1/queue/:scheduleId/start
-   - Set DailySchedule.queue_status → 'active', current_token → 0
-   - Auth: verifyDoctor (must own the schedule)
+PART A — Doctor actions
+1. POST /api/v1/prescriptions
+   Body: { appointment_id, medicines: [{name, dosage, frequency, duration, instructions}], notes }
+   Auth: verifyDoctor
+   - Appointment must be 'done' status
+   - Appointment.doctor_id must match req.doctor._id
+   - Create Prescription document
+   - Set Appointment.prescription_id = new prescription._id
+   - Return prescription
 
-2. POST /api/v1/queue/:scheduleId/pause
-   - Body: { reason? }
-   - Set queue_status → 'paused', pause_reason
-   - Auth: verifyDoctor
+2. PATCH /api/v1/prescriptions/:id
+   Body: { medicines?, notes? }
+   Auth: verifyDoctor (must be prescription owner)
+   - Only editable within 24 hours of creation (createdAt + 24h > now)
+   - Update medicines and/or notes
+   - Return updated prescription
 
-3. POST /api/v1/queue/:scheduleId/resume
-   - Set queue_status → 'active', clear pause_reason
-   - Auth: verifyDoctor
+PART B — Patient/User actions
+3. GET /api/v1/prescriptions/my
+   Auth: verifyUser
+   Query: ?page=1&limit=10
+   - Return prescriptions for all the user's patients (patient_id in user's patients list)
+   - Populate: doctor name + specialization, patient name
+   - Sort by createdAt desc
 
-4. POST /api/v1/queue/:scheduleId/complete
-   - Set queue_status → 'completed'
-   - Any remaining confirmed appointments → no_show
-   - Auth: verifyDoctor
+4. GET /api/v1/prescriptions/:id
+   Auth: verifyUser (patient's owner) OR verifyDoctor (prescription author)
+   - Return full prescription with doctor info and patient info
 
-PART B — Token Actions (doctor only)
-5. POST /api/v1/queue/:scheduleId/call-next
-   - Increment current_token by 1
-   - Find appointment with that token_number → set status 'in_consultation'
-   - Recalculate eta_minutes for all waiting confirmed appointments:
-     eta = (token - current_token) * avg_consult_minutes
-   - Return: { current_token, appointment (if exists) }
-   - Auth: verifyDoctor
+PART C — Lookup by appointment
+5. GET /api/v1/prescriptions/appointment/:appointmentId
+   Auth: verifyUser (appointment owner) OR verifyDoctor
+   - Return prescription for a specific appointment (if exists)
 
-6. POST /api/v1/queue/:scheduleId/done
-   - Set current appointment (status='in_consultation') → 'done'
-   - Auth: verifyDoctor
+Validators: src/validators/prescription.validators.js
+Controller: src/controllers/prescription.controller.js
+Route: src/routes/prescription.routes.js
 
-7. POST /api/v1/queue/:scheduleId/no-show
-   - Body: { token_number }
-   - Set that appointment → 'no_show' (patient didn't arrive)
-   - Auth: verifyDoctor
-
-PART C — Queue Status (public)
-8. GET /api/v1/queue/:scheduleId/status
-   - Return: { queue_status, current_token, avg_consult_minutes, remaining_count }
-   - remaining_count = confirmed appointments with token_number > current_token
-   - Public endpoint (used by patient to check their wait)
-
-Controller: src/controllers/queue.controller.js
-Route: src/routes/queue.routes.js
-
-Register /api/v1/queue on server.js.
-Update PROGRESS.md: mark Step 9 done, add Step 10 prompt.
-```
-
----
-
-## STEP 10 — OVERRIDE PROMPT
-
-The content above this section was the old Step 9 prompt that got prepended during generation. Use the prompt below instead:
-
-```
-DocPoint backend Step 10: Real-Time Queue
-
-Project: DocPoint Smart Doctor Appointment Platform
-Working directory: e:\Projects\DocPoint\workplace\backend
-Stack: Node.js + Express + MongoDB
-PROGRESS: Steps 1-9 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
-
-Build Step 10 — Real-Time Queue: Socket.IO + MongoDB Change Streams:
-
-Existing infrastructure:
-- server.js already creates `const server = http.createServer(app)` — attach Socket.IO to this
-- src/controllers/queue.controller.js already mutates DailySchedule + Appointment
-- src/config/db.js already connects Mongoose
-
-PART A — Socket.IO Server Setup
-1. src/socket/index.js
-   - Initialize Socket.IO on the http.Server with CORS matching process.env.ALLOWED_ORIGINS
-   - Namespace: /queue
-   - On connection: client joins a room named by scheduleId
-     socket.on('join-queue', ({ scheduleId }) => socket.join(scheduleId))
-   - Export: initSocket(server) → returns io instance
-   - Export: getIO() → returns the singleton io instance (throws if not initialized)
-
-PART B — Change Stream Watcher
-2. src/socket/queueWatcher.js
-   - Watch DailySchedule collection for updates to queue_status or current_token
-   - Watch Appointment collection for status changes
-   - On DailySchedule change: emit 'queue-updated' to room scheduleId with { queue_status, current_token, avg_consult_minutes }
-   - On Appointment change: emit 'token-called' (in_consultation) or 'appointment-updated' (done/no_show) to room scheduleId with appointment data
-   - Export: startQueueWatcher() — call after DB connects
-   - Handle change stream errors + resume tokens for reconnection
-
-PART C — Integration
-3. Wire up in server.js:
-   - Call initSocket(server) after creating http.Server
-   - Call startQueueWatcher() inside startServer() after connectDB()
-   - getIO() available everywhere via the singleton
-
-File locations:
-- src/socket/index.js
-- src/socket/queueWatcher.js
-- Update server.js
-
-No new REST routes needed.
-Update PROGRESS.md: mark Step 10 done, add Step 11 prompt.
+Register /api/v1/prescriptions on server.js.
+Update PROGRESS.md: mark Step 11 done, add Step 12 prompt.
 ```
