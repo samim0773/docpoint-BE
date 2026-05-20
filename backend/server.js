@@ -86,6 +86,7 @@ const searchRoutes = require('./src/routes/search.routes');
 const bookingRoutes = require('./src/routes/booking.routes');
 const queueRoutes = require('./src/routes/queue.routes');
 const prescriptionRoutes = require('./src/routes/prescription.routes');
+const reviewRoutes = require('./src/routes/review.routes');
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/patients', patientRoutes);
@@ -97,9 +98,10 @@ app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/queue', queueRoutes);
 app.use('/api/v1/prescriptions', prescriptionRoutes);
+app.use('/api/v1/reviews', reviewRoutes);
 
-// Steps 12–13 routes registered incrementally:
-// Step 12 → /api/v1/reviews
+// Step 13 route registered incrementally:
+// Step 13 → /api/v1/notifications (SMS Jobs)
 
 // ─── 404 + Error Handlers ───────────────────────────────────────
 app.use(notFound);

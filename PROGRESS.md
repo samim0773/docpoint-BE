@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [███████████░░░░] 11/15 steps  (73%)
+Backend  [████████████░░░] 12/15 steps  (80%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [███████████░░░░░░░░░░░░░░] 11/25 steps  (44%)
+Overall  [████████████░░░░░░░░░░░░░] 12/25 steps  (48%)
 ```
 
 ---
@@ -24,8 +24,8 @@ Overall  [███████████░░░░░░░░░░░░�
 | 9 |    | ✅ DONE | src/controllers/queue.controller.js, src/routes/queue.routes.js |
 | 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ✅ DONE | src/socket/index.js, src/socket/queueWatcher.js |
 | 11 | Prescriptions — Write + History + Edit (24hr window) | ✅ DONE | src/validators/prescription.validators.js, src/controllers/prescription.controller.js, src/routes/prescription.routes.js |
-| 12 | Reviews + Rating Aggregation | ⏳ NEXT | |
-| 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ | |
+| 12 | Reviews + Rating Aggregation | ✅ DONE | src/validators/review.validators.js, src/controllers/review.controller.js, src/routes/review.routes.js |
+| 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ NEXT | |
 | 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ | |
 
 ---
@@ -353,9 +353,82 @@ src/
 
 ---
 
-## STEP 12 CONTINUATION PROMPT
+## Step 12 — What Was Built
+
+### New Files
+```
+src/
+├── validators/
+│   └── review.validators.js   # createRules, doctorIdRule, visibilityRule, paginationRules
+├── controllers/
+│   └── review.controller.js   # createReview, getMyReviews, getDoctorReviews, setVisibility
+└── routes/
+    └── review.routes.js       # All /api/v1/reviews/* routes (static /my + /doctor/:id before /:id)
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/reviews`
+
+### Route Map (Step 12)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| POST | /api/v1/reviews | verifyUser |
+| GET | /api/v1/reviews/my | verifyUser |
+| GET | /api/v1/reviews/doctor/:doctorId | Public |
+| PATCH | /api/v1/reviews/:id/visibility | verifyAdmin |
+
+### Key Design Decisions
+- **`is_hidden` not `is_visible`**: Review model stores `is_hidden` (inverted); admin sends `is_visible: true/false`, controller maps `is_hidden = !is_visible`
+- **`recalculateDoctorRating` static**: already on the Review model — aggregates `{ is_hidden: false }` reviews and rounds to 1 decimal; called after create and after visibility toggle (only when value actually changed)
+- **Rating recalc + appointment update in parallel**: `Promise.all([Appointment.update, Review.recalculate])` — neither depends on the other
+- **`appointment_id` unique index**: checked via `review_submitted` flag on Appointment (more readable than `Review.exists`); unique index is the real guard against races
+- **Visibility toggle conditional recalc**: `wasHidden !== newIsHidden` check prevents unnecessary aggregation when admin sets the same value twice
+- **Public doctor reviews filter**: `{ doctor_id, is_hidden: false }` — hidden reviews never leave the server
+
+---
+
+## STEP 13 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
+
+```
+DocPoint backend Step 13: SMS Jobs — Bull MQ + MSG91
+
+Project: DocPoint Smart Doctor Appointment Platform
+Working directory: e:\Projects\DocPoint\workplace\backend
+Stack: Node.js + Express + MongoDB + Redis (Bull MQ)
+PROGRESS: Steps 1-12 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+
+Build Step 13 — SMS Jobs via Bull MQ + MSG91:
+
+Triggers (fire-and-forget, non-blocking):
+1. Booking confirmed → SMS to patient: "Booking confirmed. Dr. {name}, {date}, Token #{token}"
+2. Booking cancelled → SMS to patient: "Booking cancelled. Ref #{appointment_id}"
+3. Token called (queue) → SMS to patient: "Your token #{token} is now being called. Please proceed to the doctor."
+
+Architecture:
+- Bull queue: 'sms' queue backed by Redis
+- Worker: processes jobs, calls MSG91 API
+- Enqueue from: booking.controller (confirm + cancel) and queue.controller (callNext)
+- SMS service: src/services/sms.js already exists — check its interface before writing
+
+Queue files:
+- src/jobs/smsQueue.js       — create Bull queue + enqueue helper
+- src/jobs/smsWorker.js      — process jobs, call SMS service
+- src/jobs/index.js          — start worker (called from server.js startServer)
+
+Integration:
+- booking.controller.js — enqueue SMS after confirmBooking and cancelBooking
+- queue.controller.js   — enqueue SMS after callNext marks token in_consultation
+
+Do NOT create any new routes. No server.js route changes needed.
+Update server.js: import and call startSmsWorker() in startServer().
+Update PROGRESS.md: mark Step 13 done, add Step 14 prompt.
+```
+
+---
+
+## STEP 12 CONTINUATION PROMPT (archived — already done)
 
 ```
 DocPoint backend Step 12: Reviews + Rating Aggregation
