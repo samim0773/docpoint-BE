@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router({ mergeParams: true });
 
 const { verifyDoctor } = require('../middleware/auth');
+const { queueLimiter } = require('../middleware/rateLimiter');
 const { param, body } = require('express-validator');
 const validate = require('../validators/validate');
 
@@ -33,15 +34,15 @@ const pauseRule = [
 ];
 
 // ─── Queue Control (doctor) ───────────────────────────────────────
-router.post('/:scheduleId/start',    verifyDoctor, scheduleIdRule, validate, startQueue);
-router.post('/:scheduleId/pause',    verifyDoctor, pauseRule,      validate, pauseQueue);
-router.post('/:scheduleId/resume',   verifyDoctor, scheduleIdRule, validate, resumeQueue);
-router.post('/:scheduleId/complete', verifyDoctor, scheduleIdRule, validate, completeQueue);
+router.post('/:scheduleId/start',    queueLimiter, verifyDoctor, scheduleIdRule, validate, startQueue);
+router.post('/:scheduleId/pause',    queueLimiter, verifyDoctor, pauseRule,      validate, pauseQueue);
+router.post('/:scheduleId/resume',   queueLimiter, verifyDoctor, scheduleIdRule, validate, resumeQueue);
+router.post('/:scheduleId/complete', queueLimiter, verifyDoctor, scheduleIdRule, validate, completeQueue);
 
 // ─── Token Actions (doctor) ───────────────────────────────────────
-router.post('/:scheduleId/call-next', verifyDoctor, scheduleIdRule, validate, callNext);
-router.post('/:scheduleId/done',      verifyDoctor, scheduleIdRule, validate, markDone);
-router.post('/:scheduleId/no-show',   verifyDoctor, noShowRule,     validate, markNoShow);
+router.post('/:scheduleId/call-next', queueLimiter, verifyDoctor, scheduleIdRule, validate, callNext);
+router.post('/:scheduleId/done',      queueLimiter, verifyDoctor, scheduleIdRule, validate, markDone);
+router.post('/:scheduleId/no-show',   queueLimiter, verifyDoctor, noShowRule,     validate, markNoShow);
 
 // ─── Status (public) ──────────────────────────────────────────────
 router.get('/:scheduleId/status', scheduleIdRule, validate, getQueueStatus);

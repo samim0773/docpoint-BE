@@ -1,9 +1,12 @@
 const Doctor = require('../models/Doctor');
 const DailySchedule = require('../models/DailySchedule');
 const { getCityCoords } = require('../utils/citiesCoords');
+const { getCache, setCache } = require('../utils/cache');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiResponse = require('../utils/apiResponse');
+
+const SEARCH_TTL = 60; // seconds
 
 const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -22,6 +25,10 @@ const todayUTC = () => {
 // GET /search/doctors
 // ═══════════════════════════════════════════════════════════════
 const searchDoctors = asyncHandler(async (req, res) => {
+  const cacheKey = `search:${req.originalUrl}`;
+  const cached = await getCache(cacheKey);
+  if (cached) return ApiResponse.success(res, 'Doctors found', cached);
+
   const {
     city,
     specialization,
@@ -146,10 +153,13 @@ const searchDoctors = asyncHandler(async (req, res) => {
   const [result] = await Doctor.aggregate(pipeline);
   const total = result.total[0]?.count || 0;
 
-  return ApiResponse.success(res, 'Doctors found', {
+  const payload = {
     doctors: result.data,
     pagination: { total, page, limit, pages: Math.ceil(total / limit) },
-  });
+  };
+  setCache(cacheKey, payload, SEARCH_TTL); // fire-and-forget
+
+  return ApiResponse.success(res, 'Doctors found', payload);
 });
 
 // ═══════════════════════════════════════════════════════════════

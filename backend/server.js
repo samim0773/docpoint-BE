@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
+const { randomUUID } = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
@@ -31,6 +32,12 @@ app.post(
   express.raw({ type: 'application/json' }),
   handleRazorpayWebhook
 );
+
+// ─── Request ID (tracing) ───────────────────────────────────────
+app.use((req, res, next) => {
+  res.set('X-Request-ID', req.headers['x-request-id'] || randomUUID());
+  next();
+});
 
 // ─── Security Middleware ────────────────────────────────────────
 app.use(helmet());

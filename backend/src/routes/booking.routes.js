@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 
 const { verifyUser, verifyDoctor, verifyUserOrDoctor } = require('../middleware/auth');
+const { bookingLimiter } = require('../middleware/rateLimiter');
 const validate = require('../validators/validate');
 const {
   createBookingRules,
@@ -30,7 +31,7 @@ router.get('/my', verifyUser, myBookingsRules, validate, getMyBookings);
 router.get('/doctor', verifyDoctor, doctorBookingsRules, validate, getDoctorBookings);
 
 // Create booking
-router.post('/', verifyUser, createBookingRules, validate, createBooking);
+router.post('/', bookingLimiter, verifyUser, createBookingRules, validate, createBooking);
 
 // ─── Param routes ─────────────────────────────────────────────────
 

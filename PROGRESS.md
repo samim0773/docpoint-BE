@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [█████████████░░] 13/15 steps  (87%)
+Backend  [███████████████] 14/15 steps  (93%)  ← Step 15 is Angular setup (frontend)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [█████████████░░░░░░░░░░░░] 13/25 steps  (52%)
+Overall  [██████████████░░░░░░░░░░░] 14/25 steps  (56%)
 ```
 
 ---
@@ -26,7 +26,7 @@ Overall  [█████████████░░░░░░░░░░�
 | 11 | Prescriptions — Write + History + Edit (24hr window) | ✅ DONE | src/validators/prescription.validators.js, src/controllers/prescription.controller.js, src/routes/prescription.routes.js |
 | 12 | Reviews + Rating Aggregation | ✅ DONE | src/validators/review.validators.js, src/controllers/review.controller.js, src/routes/review.routes.js |
 | 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ✅ DONE | src/jobs/smsQueue.js, src/jobs/smsWorker.js, src/jobs/index.js |
-| 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ NEXT | |
+| 14 | Production Hardening — Redis Cache + Security + PM2 | ✅ DONE | src/utils/cache.js, ecosystem.config.js |
 
 ---
 
@@ -448,6 +448,94 @@ PART C — PM2 Ecosystem File
 
 No new routes. No PROGRESS.md step numbers change for frontend.
 Update PROGRESS.md: mark Step 14 done, note backend complete, add Step 15 (frontend) prompt.
+```
+
+---
+
+## Step 14 — What Was Built
+
+### New Files
+```
+src/utils/
+└── cache.js               # getCache, setCache, delCache, delCacheByPattern (SCAN-based)
+
+ecosystem.config.js        # PM2 — 2 cluster instances, 512MB memory limit, env_production
+```
+
+### Updated Files
+- `src/middleware/rateLimiter.js` — added `bookingLimiter` (20/hr), `queueLimiter` (60/min)
+- `src/routes/booking.routes.js` — `bookingLimiter` on POST `/`
+- `src/routes/queue.routes.js` — `queueLimiter` on all 7 doctor action routes
+- `src/controllers/search.controller.js` — cache check/set around `searchDoctors` aggregation (60s TTL, key: `search:${req.originalUrl}`)
+- `src/controllers/review.controller.js` — cache check/set in `getDoctorReviews` (120s TTL); `delCacheByPattern` in `createReview` to bust all pages for that doctor
+- `src/controllers/queue.controller.js` — cache check/set in `getQueueStatus` (10s TTL, key: `queue:status:${scheduleId}`)
+- `server.js` — `X-Request-ID` middleware using Node 18 `crypto.randomUUID()` (forwards client header if present, otherwise generates one)
+
+### Key Design Decisions
+- **`cache.js` fails silently**: every method has try/catch — if Redis is down, `getCache` returns `null` and the controller falls through to the DB query. No app crash, no user-visible error.
+- **`delCacheByPattern` uses SCAN not KEYS**: ioredis `scanStream({ match })` is non-blocking; `KEYS` blocks Redis on large keyspaces
+- **Search cache key = `req.originalUrl`**: includes path + query string — each unique query combination gets its own cache entry; 60s TTL means slightly stale `available_today` results are acceptable
+- **Review cache invalidation scope**: `delCacheByPattern('reviews:doctor:${doctorId}:*')` busts ALL paginated pages for that doctor in one SCAN sweep
+- **Queue status cache 10s TTL**: short enough that manual pollers get near-real-time data; Socket.IO handles true real-time for subscribed clients (so they never need to poll)
+- **`bookingLimiter` position**: placed BEFORE `verifyUser` so unauthenticated flooding is rate-limited without touching the DB
+- **`queueLimiter` position**: same pattern — rate-limit before auth middleware
+- **PM2 cluster mode**: 2 instances share the Node.js cluster; the BullMQ worker runs in each instance but Bull's Redis queue is shared, so jobs are not double-processed (Bull uses atomic Redis commands for job locking)
+- **`ecosystem.config.js` at workspace root**: allows `pm2 start ecosystem.config.js --env production` from the project root without entering the backend directory
+
+### ✅ BACKEND COMPLETE — All 14 steps done
+
+---
+
+## STEP 15 CONTINUATION PROMPT
+
+Copy and paste this exactly to continue with the frontend:
+
+```
+DocPoint frontend Step 15: Angular Setup + Routing + Auth Guards + HTTP Interceptors
+
+Project: DocPoint Smart Doctor Appointment Platform
+Working directory: e:\Projects\DocPoint\workplace
+Stack: Angular 17+ (standalone components), TailwindCSS
+Backend API: http://localhost:5000/api/v1
+
+Create the Angular frontend project at e:\Projects\DocPoint\workplace\frontend
+
+Setup:
+1. Angular project — standalone components, routing enabled, SCSS
+2. TailwindCSS integration
+3. Folder structure:
+   - src/app/core/         — services, guards, interceptors, models
+   - src/app/shared/       — reusable components
+   - src/app/features/     — feature modules (auth, booking, doctor, queue, prescription, admin)
+
+Core services (src/app/core/services/):
+- auth.service.ts      — login/logout, token storage, user state (BehaviorSubject)
+- api.service.ts       — base HTTP wrapper (sets base URL)
+
+Guards (src/app/core/guards/):
+- auth.guard.ts        — redirects to /login if no token
+- guest.guard.ts       — redirects to /home if already logged in
+- doctor.guard.ts      — for doctor-only routes
+- admin.guard.ts       — for admin-only routes
+
+Interceptors (src/app/core/interceptors/):
+- auth.interceptor.ts  — adds Bearer token to all requests
+- error.interceptor.ts — handles 401 (auto-logout), shows toast on 4xx/5xx
+
+Routing (app.routes.ts):
+- /login             → AuthComponent (lazy)
+- /home              → HomeComponent (lazy, auth guard)
+- /doctors           → DoctorSearchComponent (lazy)
+- /doctors/:id       → DoctorDetailComponent (lazy)
+- /bookings          → BookingsComponent (lazy, auth guard)
+- /queue/:scheduleId → QueueTrackerComponent (lazy)
+- /prescriptions     → PrescriptionsComponent (lazy, auth guard)
+- /doctor/*          → Doctor panel (lazy, doctor guard)
+- /admin/*           → Admin panel (lazy, admin guard)
+- **                 → redirect to /home
+
+Create placeholder components for each route so the app compiles.
+Update PROGRESS.md: mark Step 15 done, add Step 16 prompt.
 ```
 
 ---

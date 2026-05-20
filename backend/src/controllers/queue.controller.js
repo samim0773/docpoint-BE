@@ -1,10 +1,13 @@
 const DailySchedule = require('../models/DailySchedule');
 const Appointment = require('../models/Appointment');
 const { enqueueSms } = require('../jobs/smsQueue');
+const { getCache, setCache } = require('../utils/cache');
 const AppError = require('../utils/AppError');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiResponse = require('../utils/apiResponse');
 const logger = require('../config/logger');
+
+const QUEUE_STATUS_TTL = 10; // seconds
 
 // ─── helper ──────────────────────────────────────────────────────
 const getOwnedSchedule = async (scheduleId, doctorId) => {
@@ -217,24 +220,33 @@ const markNoShow = asyncHandler(async (req, res) => {
 
 // GET /queue/:scheduleId/status
 const getQueueStatus = asyncHandler(async (req, res) => {
-  const schedule = await DailySchedule.findById(req.params.scheduleId)
+  const { scheduleId } = req.params;
+  const cacheKey = `queue:status:${scheduleId}`;
+
+  const cached = await getCache(cacheKey);
+  if (cached) return ApiResponse.success(res, 'Queue status fetched', cached);
+
+  const schedule = await DailySchedule.findById(scheduleId)
     .select('queue_status current_token avg_consult_minutes doctor_id date')
     .lean();
 
   if (!schedule) throw new AppError('Schedule not found', 404);
 
   const remaining_count = await Appointment.countDocuments({
-    schedule_id: req.params.scheduleId,
+    schedule_id: scheduleId,
     status: 'confirmed',
     token_number: { $gt: schedule.current_token },
   });
 
-  return ApiResponse.success(res, 'Queue status fetched', {
+  const payload = {
     queue_status: schedule.queue_status,
     current_token: schedule.current_token,
     avg_consult_minutes: schedule.avg_consult_minutes,
     remaining_count,
-  });
+  };
+  setCache(cacheKey, payload, QUEUE_STATUS_TTL); // fire-and-forget
+
+  return ApiResponse.success(res, 'Queue status fetched', payload);
 });
 
 module.exports = {

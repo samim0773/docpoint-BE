@@ -2,6 +2,10 @@ const asyncHandler = require('../utils/asyncHandler');
 const AppError = require('../utils/AppError');
 const Review = require('../models/Review');
 const Appointment = require('../models/Appointment');
+const { getCache, setCache, delCacheByPattern } = require('../utils/cache');
+
+const REVIEWS_TTL = 120; // seconds
+const reviewsCacheKey = (doctorId, page, limit) => `reviews:doctor:${doctorId}:${page}:${limit}`;
 
 // ─── POST /api/v1/reviews ─────────────────────────────────────────
 const createReview = asyncHandler(async (req, res) => {
@@ -26,6 +30,7 @@ const createReview = asyncHandler(async (req, res) => {
   await Promise.all([
     Appointment.findByIdAndUpdate(appointment_id, { review_submitted: true }),
     Review.recalculateDoctorRating(appt.doctor_id),
+    delCacheByPattern(`reviews:doctor:${appt.doctor_id}:*`),
   ]);
 
   res.status(201).json({ success: true, data: review });
@@ -63,6 +68,10 @@ const getDoctorReviews = asyncHandler(async (req, res) => {
   const limit = Math.min(50, Math.max(1, parseInt(req.query.limit) || 10));
   const skip = (page - 1) * limit;
 
+  const cacheKey = reviewsCacheKey(doctorId, page, limit);
+  const cached = await getCache(cacheKey);
+  if (cached) return res.json({ success: true, ...cached });
+
   const filter = { doctor_id: doctorId, is_hidden: false };
 
   const [total, reviews] = await Promise.all([
@@ -73,11 +82,10 @@ const getDoctorReviews = asyncHandler(async (req, res) => {
       .limit(limit),
   ]);
 
-  res.json({
-    success: true,
-    data: reviews,
-    meta: { total, page, limit, pages: Math.ceil(total / limit) },
-  });
+  const payload = { data: reviews, meta: { total, page, limit, pages: Math.ceil(total / limit) } };
+  setCache(cacheKey, payload, REVIEWS_TTL); // fire-and-forget
+
+  res.json({ success: true, ...payload });
 });
 
 // ─── PATCH /api/v1/reviews/:id/visibility ─────────────────────────
