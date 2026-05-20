@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [██████████░░░░░] 10/15 steps  (67%)
+Backend  [███████████░░░░] 11/15 steps  (73%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [██████████░░░░░░░░░░░░░░░] 10/25 steps  (40%)
+Overall  [███████████░░░░░░░░░░░░░░] 11/25 steps  (44%)
 ```
 
 ---
@@ -23,8 +23,8 @@ Overall  [██████████░░░░░░░░░░░░░�
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ✅ DONE | src/validators/booking.validators.js, src/controllers/booking.controller.js, src/routes/booking.routes.js |
 | 9 |    | ✅ DONE | src/controllers/queue.controller.js, src/routes/queue.routes.js |
 | 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ✅ DONE | src/socket/index.js, src/socket/queueWatcher.js |
-| 11 | Prescriptions — Write + History + Edit (24hr window) | ⏳ NEXT | |
-| 12 | Reviews + Rating Aggregation | ⏳ | |
+| 11 | Prescriptions — Write + History + Edit (24hr window) | ✅ DONE | src/validators/prescription.validators.js, src/controllers/prescription.controller.js, src/routes/prescription.routes.js |
+| 12 | Reviews + Rating Aggregation | ⏳ NEXT | |
 | 13 | SMS Jobs — Bull MQ + MSG91 (Booking, Cancel, Queue Alert) | ⏳ | |
 | 14 | Production Hardening — Redis Cache + Security + PM2 | ⏳ | |
 
@@ -318,9 +318,101 @@ src/socket/
 
 ---
 
-## STEP 11 CONTINUATION PROMPT
+## Step 11 — What Was Built
+
+### New Files
+```
+src/
+├── validators/
+│   └── prescription.validators.js   # createRules, updateRules, idRule, appointmentIdRule, myListRules
+├── controllers/
+│   └── prescription.controller.js   # createPrescription, updatePrescription, getMyPrescriptions, getPrescription, getPrescriptionByAppointment
+└── routes/
+    └── prescription.routes.js       # All /api/v1/prescriptions/* routes (static /my + /appointment/:id before /:id)
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/prescriptions`
+
+### Route Map (Step 11)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| POST | /api/v1/prescriptions | verifyDoctor |
+| PATCH | /api/v1/prescriptions/:id | verifyDoctor |
+| GET | /api/v1/prescriptions/my | verifyUser |
+| GET | /api/v1/prescriptions/appointment/:appointmentId | verifyUserOrDoctor |
+| GET | /api/v1/prescriptions/:id | verifyUserOrDoctor |
+
+### Key Design Decisions
+- **Model vs spec differences**: Prescription model has `user_id` (not in spec) — captured from appointment on create; no `is_finalized` field; extra fields: `chief_complaint`, `diagnosis`, `vitals`, `follow_up_date` accepted in create/update
+- **`appointment_id` unique index**: prevents duplicate prescriptions per appointment; checked with `Prescription.exists()` before create (returns 409 on conflict)
+- **24-hour window via `createdAt`**: `Date.now() - prescription.createdAt.getTime() > 24*60*60*1000` — uses `timestamps: true` from Mongoose, no extra field needed
+- **Static routes before `/:id`**: `/my` and `/appointment/:appointmentId` declared first so Express doesn't treat the literal strings as Mongo IDs
+- **Access control on `GET /:id`**: if `req.user` — checks `Patient.exists({ _id, user_id, is_deleted: false })`; if `req.doctor` — checks `prescription.doctor_id === req.doctor._id`
+- **`getMyPrescriptions` via Patient join**: fetches all non-deleted patient IDs for the user first, then uses `$in` — avoids needing a `user_id` index on Prescription
+
+---
+
+## STEP 12 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
+
+```
+DocPoint backend Step 12: Reviews + Rating Aggregation
+
+Project: DocPoint Smart Doctor Appointment Platform
+Working directory: e:\Projects\DocPoint\workplace\backend
+Stack: Node.js + Express + MongoDB
+PROGRESS: Steps 1-11 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+
+Build Step 12 — Reviews + Rating Aggregation:
+
+Existing models (do NOT recreate):
+- Review: { doctor_id, patient_id, user_id, appointment_id, rating (1-5), comment, is_visible, created_at }
+- Appointment: { doctor_id, patient_id, user_id, status, review_submitted }
+- Doctor: { rating: { average, total_reviews } }
+
+PART A — User actions
+1. POST /api/v1/reviews
+   Body: { appointment_id, rating, comment? }
+   Auth: verifyUser
+   - Appointment must be 'done' and belong to this user
+   - review_submitted must be false (one review per appointment)
+   - Create Review document
+   - Set Appointment.review_submitted = true
+   - Recalculate Doctor.rating.average and Doctor.rating.total_reviews atomically
+
+2. GET /api/v1/reviews/my
+   Auth: verifyUser
+   Query: ?page=1&limit=10
+   - Return reviews submitted by this user
+   - Populate doctor name + specialization
+   - Sort by createdAt desc
+
+PART B — Public / Doctor actions
+3. GET /api/v1/reviews/doctor/:doctorId
+   Public
+   Query: ?page=1&limit=10
+   - Return visible reviews for a doctor
+   - Sort by createdAt desc
+
+PART C — Admin actions
+4. PATCH /api/v1/reviews/:id/visibility
+   Body: { is_visible: boolean }
+   Auth: verifyAdmin
+   - Toggle review visibility
+
+Validators: src/validators/review.validators.js
+Controller: src/controllers/review.controller.js
+Route: src/routes/review.routes.js
+
+Register /api/v1/reviews on server.js.
+Update PROGRESS.md: mark Step 12 done, add Step 13 prompt.
+```
+
+---
+
+## STEP 11 CONTINUATION PROMPT (archived — already done)
 
 ```
 DocPoint backend Step 11: Prescriptions
