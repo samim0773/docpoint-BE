@@ -85,6 +85,7 @@ const scheduleRoutes = require('./src/routes/schedule.routes');
 const searchRoutes = require('./src/routes/search.routes');
 const bookingRoutes = require('./src/routes/booking.routes');
 const queueRoutes = require('./src/routes/queue.routes');
+const prescriptionRoutes = require('./src/routes/prescription.routes');
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/patients', patientRoutes);
@@ -95,9 +96,9 @@ app.use('/api/v1/schedules', scheduleRoutes);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/bookings', bookingRoutes);
 app.use('/api/v1/queue', queueRoutes);
+app.use('/api/v1/prescriptions', prescriptionRoutes);
 
-// Steps 11–13 routes registered incrementally:
-// Step 11 → /api/v1/prescriptions
+// Steps 12–13 routes registered incrementally:
 // Step 12 → /api/v1/reviews
 
 // ─── 404 + Error Handlers ───────────────────────────────────────
