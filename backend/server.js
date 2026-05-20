@@ -77,6 +77,7 @@ const subscriptionRoutes = require('./src/routes/subscription.routes');
 const doctorRoutes = require('./src/routes/doctor.routes');
 const adminRoutes = require('./src/routes/admin.routes');
 const scheduleRoutes = require('./src/routes/schedule.routes');
+const searchRoutes = require('./src/routes/search.routes');
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/patients', patientRoutes);
@@ -84,9 +85,9 @@ app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use('/api/v1/schedules', scheduleRoutes);
+app.use('/api/v1/search', searchRoutes);
 
-// Steps 7–13 routes registered incrementally:
-// Step 7  → /api/v1/search
+// Steps 8–13 routes registered incrementally:
 // Step 8  → /api/v1/bookings
 // Step 9  → queue management (PATCH on /api/v1/bookings + /api/v1/schedules)
 // Step 11 → /api/v1/prescriptions

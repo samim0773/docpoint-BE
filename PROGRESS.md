@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [██████░░░░░░░░░] 6/15 steps  (40%)
+Backend  [███████░░░░░░░░] 7/15 steps  (47%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [██████░░░░░░░░░░░░░░░░░░░] 6/25 steps  (24%)
+Overall  [███████░░░░░░░░░░░░░░░░░░] 7/25 steps  (28%)
 ```
 
 ---
@@ -19,8 +19,8 @@ Overall  [██████░░░░░░░░░░░░░░░░░�
 | 4 | Doctor Auth + Registration + Profile + Cloudinary + Distance | ✅ DONE | src/utils/citiesCoords.js, src/services/maps.js, src/validators/doctor.validators.js, src/controllers/(doctorAuth,doctorProfile).controller.js, src/routes/doctor.routes.js |
 | 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt + Stats | ✅ DONE | src/validators/admin.validators.js, src/controllers/admin.controller.js, src/routes/admin.routes.js |
 | 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ✅ DONE | src/validators/schedule.validators.js, src/controllers/schedule.controller.js, src/routes/schedule.routes.js, src/jobs/scheduleGenerator.js |
-| 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ⏳ NEXT | |
-| 8 | Booking System — Create + Confirm + Cancel + Refund | ⏳ | |
+| 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ✅ DONE | src/validators/search.validators.js, src/controllers/search.controller.js, src/routes/search.routes.js |
+| 8 | Booking System — Create + Confirm + Cancel + Refund | ⏳ NEXT | |
 | 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ⏳ | |
 | 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ⏳ | |
 | 11 | Prescriptions — Write + History + Edit (24hr window) | ⏳ | |
@@ -180,52 +180,118 @@ src/
 
 ---
 
-## STEP 7 CONTINUATION PROMPT
+## Step 7 — What Was Built
+
+### New Files
+```
+src/
+├── validators/
+│   └── search.validators.js        # searchRules (city required, optional filters), doctorIdRule
+├── controllers/
+│   └── search.controller.js        # searchDoctors ($geoNear pipeline + $facet), getDoctorWithAvailability
+└── routes/
+    └── search.routes.js            # GET /doctors (searchLimiter), GET /doctors/:id
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/search`
+
+### Route Map (Step 7)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| GET | /api/v1/search/doctors?city=&specialization=&language=&max_fee=&available_today=&sort=&page=&limit= | Public (searchLimiter: 60/min) |
+| GET | /api/v1/search/doctors/:id | Public |
+
+### Key Design Decisions
+- **`$geoNear` must be first**: it is the only aggregation stage that uses the 2dsphere index; approval/blocked/complete filters are pushed into its `query` option so they run at the index scan level
+- **`$facet` for pagination**: total count + paginated results computed in a single pass — avoids a second `countDocuments` query on the full filtered result set
+- **`$lookup` sub-pipeline for `available_today`**: uses correlated `$$did` variable with `$expr: { $lt: ['$booked_count', '$max_patients'] }` inside the sub-pipeline `$match` to check slot availability without a round-trip
+- **`$limit: 1` inside lookup**: once one matching schedule is found we stop scanning — keeps the join cheap
+- **Regex escaping**: specialization filter escapes user input before constructing `$regex` to prevent ReDoS
+- **`languages` filter**: wired in pipeline; field not yet on Doctor model — will activate once added (filter currently has no effect)
+- **50 km radius**: hardcoded in `$geoNear.maxDistance`; sufficient for city-based search, easy to make configurable later
+
+---
+
+## STEP 8 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 7: Doctor Search
+DocPoint backend Step 8: Booking System
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
 Stack: Node.js + Express + MongoDB
-PROGRESS: Steps 1-6 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+PROGRESS: Steps 1-7 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
 
-Build Step 7 — Doctor Search: Geo + Filters + Distance:
+Build Step 8 — Booking System: Create + Confirm + Cancel + Refund:
 
 Existing models (do NOT recreate):
-- Doctor: location (2dsphere GeoJSON Point), specialization, rating.average, consultation_fee, languages, approval_status, is_blocked, is_profile_complete
-- DailySchedule: doctor_id, date, is_available, is_holiday, max_patients, booked_count, queue_status
-- WeeklyTemplate: doctor_id, schedule[{day, is_working}]
+- Appointment: { user_id, doctor_id, patient_id, daily_schedule_id, date, token_number, status (pending_payment/confirmed/cancelled/completed/no_show), payment_id, razorpay_order_id, consultation_fee, cancel_reason, unique index {daily_schedule_id, token_number} }
+- Payment: { user_id, type (appointment/subscription), appointment_id, amount, currency, razorpay_order_id, razorpay_payment_id, razorpay_refund_id, status (created/captured/refunded/failed) }
+- DailySchedule: { doctor_id, date, max_patients, booked_count, is_available, is_holiday, queue_status }
+- User: { subscription.is_active, subscription.expires_at, subscription.grace_days_used }
+- UserPlan: { booking_cap }
 
-PART A — Search Endpoint
-1. GET /api/v1/search/doctors
-   Query params:
-   - city (required) — lookup coords from citiesCoords.js
-   - specialization (optional) — case-insensitive substring match
-   - language (optional) — filter by languages array
-   - max_fee (optional) — consultation_fee <= max_fee
-   - available_today (optional, boolean) — only doctors with open DailySchedule today
-   - sort (optional) — 'distance' (default) | 'rating' | 'fee'
-   - page, limit (default 1, 10; max limit 50)
+Services already built:
+- src/services/razorpay.js — createOrder(amount, currency, receipt, notes), verifyPaymentSignature(orderId, paymentId, signature), initiateRefund(paymentId, amount, notes)
 
-   Pipeline:
-   a. $geoNear: { near: cityCoords, distanceField: 'distance_m', maxDistance: 50000 (50km), query: { approval_status:'approved', is_blocked:false, is_profile_complete:true } }
-   b. Apply specialization / language / max_fee filters
-   c. If available_today: $lookup DailySchedule for today, filter to docs with available slot
-   d. Sort by chosen field
-   e. Return: name, specialization, rating, consultation_fee, clinic_address.city, distance_m, profile_photo, languages
+PART A — Create Booking (initiate payment)
+1. POST /api/v1/bookings
+   Body: { doctor_id, patient_id, date (YYYY-MM-DD) }
+   Auth: verifyUser
+   Logic:
+   a. Check user has active subscription (is_active=true, expires_at > now). Grace period users cannot book.
+   b. Check booking_cap: count confirmed+completed appointments this month against plan.booking_cap (null = unlimited)
+   c. Find DailySchedule for that doctor+date: must be is_available=true, is_holiday=false, queue_status not 'completed'
+   d. Atomically increment booked_count ($inc) only if booked_count < max_patients — use findOneAndUpdate with $inc and $lt condition
+   e. Assign token_number = new booked_count value
+   f. Create Appointment { status: 'pending_payment', token_number, consultation_fee from Doctor }
+   g. Create Razorpay order (consultation_fee in rupees)
+   h. Create Payment record { status: 'created', razorpay_order_id }
+   i. Return: { appointment_id, razorpay_order_id, amount, key_id: process.env.RAZORPAY_KEY_ID }
 
-PART B — Doctor Detail (augmented)
-2. GET /api/v1/search/doctors/:id
-   - Full doctor profile (same as /api/v1/doctors/:id but adds next_available_date)
-   - next_available_date: nearest DailySchedule date where is_available=true, booked_count < max_patients, date >= today
+2. POST /api/v1/bookings/:id/confirm
+   Body: { razorpay_payment_id, razorpay_signature }
+   Auth: verifyUser (must be appointment owner)
+   Logic:
+   a. Verify HMAC signature using razorpay.verifyPaymentSignature()
+   b. Update Appointment status → 'confirmed', save payment_id
+   c. Update Payment status → 'captured', razorpay_payment_id
+   d. Return confirmed appointment
 
-Validators: src/validators/search.validators.js
-Controller: src/controllers/search.controller.js
-Route: src/routes/search.routes.js
+PART B — Cancel + Refund
+3. POST /api/v1/bookings/:id/cancel
+   Body: { reason? }
+   Auth: verifyUser (owner) or verifyDoctor (doctor of appointment)
+   Logic:
+   a. Only confirmed appointments can be cancelled
+   b. Decrement DailySchedule.booked_count by 1 ($inc: -1, min 0)
+   c. Initiate Razorpay refund (full amount) via razorpay.initiateRefund()
+   d. Update Payment status → 'refunded', razorpay_refund_id
+   e. Update Appointment status → 'cancelled', cancel_reason
+   f. Return cancelled appointment
 
-Register /api/v1/search on server.js.
-Update PROGRESS.md: mark Step 7 done, add Step 8 prompt.
+PART C — Booking History
+4. GET /api/v1/bookings/my
+   Auth: verifyUser
+   Query: ?status=confirmed|cancelled|completed&page=1&limit=10
+   Return: paginated list with doctor name, date, token_number, status
+
+5. GET /api/v1/bookings/doctor
+   Auth: verifyDoctor
+   Query: ?date=YYYY-MM-DD&status=confirmed|completed|no_show
+   Return: bookings for that day, with patient name + family member name
+
+6. GET /api/v1/bookings/:id
+   Auth: verifyUser (owner) or verifyDoctor
+   Return: full appointment detail
+
+Validators: src/validators/booking.validators.js
+Controller: src/controllers/booking.controller.js
+Route: src/routes/booking.routes.js
+
+Register /api/v1/bookings on server.js.
+Update PROGRESS.md: mark Step 8 done, add Step 9 prompt.
 ```
