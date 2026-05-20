@@ -76,15 +76,16 @@ const patientRoutes = require('./src/routes/patient.routes');
 const subscriptionRoutes = require('./src/routes/subscription.routes');
 const doctorRoutes = require('./src/routes/doctor.routes');
 const adminRoutes = require('./src/routes/admin.routes');
+const scheduleRoutes = require('./src/routes/schedule.routes');
 
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/patients', patientRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
 app.use('/api/v1/doctors', doctorRoutes);
 app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/schedules', scheduleRoutes);
 
-// Steps 6–13 routes registered incrementally:
-// Step 6  → /api/v1/schedules (doctor schedule templates + daily auto-gen)
+// Steps 7–13 routes registered incrementally:
 // Step 7  → /api/v1/search
 // Step 8  → /api/v1/bookings
 // Step 9  → queue management (PATCH on /api/v1/bookings + /api/v1/schedules)
@@ -98,6 +99,8 @@ app.use(errorHandler);
 // ─── Bootstrap ──────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 
+const { startScheduleGenerator } = require('./src/jobs/scheduleGenerator');
+
 const startServer = async () => {
   await connectDB();
 
@@ -106,6 +109,8 @@ const startServer = async () => {
   } catch (err) {
     logger.warn('Redis not available — queue features degraded:', err.message);
   }
+
+  startScheduleGenerator();
 
   server.listen(PORT, () => {
     logger.info(`DocPoint server running on port ${PORT} [${process.env.NODE_ENV}]`);

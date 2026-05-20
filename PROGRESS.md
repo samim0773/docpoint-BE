@@ -2,9 +2,9 @@
 
 ## Progress Bar
 ```
-Backend  [█████░░░░░░░░░░] 5/15 steps  (33%)
+Backend  [██████░░░░░░░░░] 6/15 steps  (40%)
 Frontend [░░░░░░░░░░░] 0/10 steps  (0%)
-Overall  [█████░░░░░░░░░░░░░░░░░░░░] 5/25 steps  (20%)
+Overall  [██████░░░░░░░░░░░░░░░░░░░] 6/25 steps  (24%)
 ```
 
 ---
@@ -18,8 +18,8 @@ Overall  [█████░░░░░░░░░░░░░░░░░░�
 | 3 | Family Patients CRUD + User Subscription + Razorpay Webhook | ✅ DONE | src/services/razorpay.js, src/controllers/(patients,subscription).controller.js, src/routes/(patient,subscription).routes.js |
 | 4 | Doctor Auth + Registration + Profile + Cloudinary + Distance | ✅ DONE | src/utils/citiesCoords.js, src/services/maps.js, src/validators/doctor.validators.js, src/controllers/(doctorAuth,doctorProfile).controller.js, src/routes/doctor.routes.js |
 | 5 | Admin Auth + Doctor Approval + User Mgmt + Plan Mgmt + Stats | ✅ DONE | src/validators/admin.validators.js, src/controllers/admin.controller.js, src/routes/admin.routes.js |
-| 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ⏳ NEXT | |
-| 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ⏳ | |
+| 6 | Doctor Schedule — Weekly Template + Daily Auto-gen (Cron) | ✅ DONE | src/validators/schedule.validators.js, src/controllers/schedule.controller.js, src/routes/schedule.routes.js, src/jobs/scheduleGenerator.js |
+| 7 | Doctor Search — Geo + Atlas Search + Filters + Distance | ⏳ NEXT | |
 | 8 | Booking System — Create + Confirm + Cancel + Refund | ⏳ | |
 | 9 | Doctor Queue Mgmt — Call/Done/No-show + Pause/Resume | ⏳ | |
 | 10 | Real-Time Queue — Socket.IO + MongoDB Change Streams | ⏳ | |
@@ -141,66 +141,91 @@ src/
 
 ---
 
-## STEP 6 CONTINUATION PROMPT
+## Step 6 — What Was Built
+
+### New Files
+```
+src/
+├── validators/
+│   └── schedule.validators.js      # upsertTemplateRules, patchDayRules, dailyRangeRules, holidayRules, availableDatesRules
+├── controllers/
+│   └── schedule.controller.js      # getTemplate, upsertTemplate, patchDay, getDailySchedules, setHoliday, getAvailableDates
+├── routes/
+│   └── schedule.routes.js          # All /api/v1/schedules/* routes (static before /:doctorId)
+└── jobs/
+    └── scheduleGenerator.js        # node-cron job: daily 00:05 UTC, bulk-upserts 30-day DailySchedule window
+```
+
+### Updated Files
+- `server.js` — registered `/api/v1/schedules`, imported & started `scheduleGenerator` cron inside `startServer()`
+
+### Route Map (Step 6)
+| Method | Endpoint | Auth |
+|--------|----------|------|
+| GET | /api/v1/schedules/template | verifyDoctor |
+| PUT | /api/v1/schedules/template | verifyDoctor |
+| PATCH | /api/v1/schedules/template/:day | verifyDoctor |
+| GET | /api/v1/schedules/daily?from=&to= | verifyDoctor |
+| PATCH | /api/v1/schedules/daily/:date/holiday | verifyDoctor |
+| GET | /api/v1/schedules/:doctorId/available-dates?month= | Public |
+
+### Key Design Decisions
+- **Model adaptation**: WeeklyTemplate uses string day names ('monday'…'sunday') and `is_working` — the API matches the model, not the spec's 0-6 integers / `is_active`
+- **Merge semantics on PUT**: only days included in the request body are overwritten; unmentioned days are preserved — safe for partial updates
+- **`$setOnInsert` bulkWrite**: cron uses upsert with `$setOnInsert` so existing schedules (including holidays set manually) are never overwritten
+- **UTC date storage**: all dates stored at UTC midnight; `parseUTCDate()` appends `T00:00:00.000Z` to keep dates consistent across timezones
+- **Holiday restore**: when is_holiday=false and no schedule exists yet, the controller reads the WeeklyTemplate to reconstruct slots/max_patients
+- **Slot overlap validation**: O(n²) check in controller (max ~10 slots/day so trivially fast)
+- **Static before param routes**: `/template`, `/daily` declared before `/:doctorId` to prevent Express treating "template" as a doctorId
+
+---
+
+## STEP 7 CONTINUATION PROMPT
 
 Copy and paste this exactly to continue:
 
 ```
-DocPoint backend Step 6: Doctor Schedule
+DocPoint backend Step 7: Doctor Search
 
 Project: DocPoint Smart Doctor Appointment Platform
 Working directory: e:\Projects\DocPoint\workplace\backend
 Stack: Node.js + Express + MongoDB
-PROGRESS: Steps 1-5 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
+PROGRESS: Steps 1-6 complete (see e:\Projects\DocPoint\workplace\PROGRESS.md)
 
-Build Step 6 — Doctor Schedule: Weekly Template + Daily Auto-gen (Cron):
+Build Step 7 — Doctor Search: Geo + Filters + Distance:
 
-Existing models (already created in Step 1, do NOT recreate):
-- WeeklySchedule: { doctor_id, day_of_week (0-6), slots: [{start_time, end_time, max_patients}], is_active }
-- DailySchedule: { doctor_id, date, slots: [{start_time, end_time, max_patients, booked_count}], queue_status (open/paused/closed), current_token, is_holiday }
+Existing models (do NOT recreate):
+- Doctor: location (2dsphere GeoJSON Point), specialization, rating.average, consultation_fee, languages, approval_status, is_blocked, is_profile_complete
+- DailySchedule: doctor_id, date, is_available, is_holiday, max_patients, booked_count, queue_status
+- WeeklyTemplate: doctor_id, schedule[{day, is_working}]
 
-PART A — Weekly Template (doctor-facing)
-1. GET    /api/v1/schedules/template
-   - Return doctor's weekly template (all 7 days, even if no slots set)
-   - verifyDoctor (approved only)
+PART A — Search Endpoint
+1. GET /api/v1/search/doctors
+   Query params:
+   - city (required) — lookup coords from citiesCoords.js
+   - specialization (optional) — case-insensitive substring match
+   - language (optional) — filter by languages array
+   - max_fee (optional) — consultation_fee <= max_fee
+   - available_today (optional, boolean) — only doctors with open DailySchedule today
+   - sort (optional) — 'distance' (default) | 'rating' | 'fee'
+   - page, limit (default 1, 10; max limit 50)
 
-2. PUT    /api/v1/schedules/template
-   - Upsert the full weekly template: body is array of { day_of_week, slots, is_active }
-   - Each slot: { start_time (HH:MM), end_time (HH:MM), max_patients (int, min 1, max 50) }
-   - Validate no overlapping slots within the same day
-   - verifyDoctor
+   Pipeline:
+   a. $geoNear: { near: cityCoords, distanceField: 'distance_m', maxDistance: 50000 (50km), query: { approval_status:'approved', is_blocked:false, is_profile_complete:true } }
+   b. Apply specialization / language / max_fee filters
+   c. If available_today: $lookup DailySchedule for today, filter to docs with available slot
+   d. Sort by chosen field
+   e. Return: name, specialization, rating, consultation_fee, clinic_address.city, distance_m, profile_photo, languages
 
-3. PATCH  /api/v1/schedules/template/:day
-   - Update a single day (day = 0-6)
-   - Body: { slots, is_active }
-   - verifyDoctor
+PART B — Doctor Detail (augmented)
+2. GET /api/v1/search/doctors/:id
+   - Full doctor profile (same as /api/v1/doctors/:id but adds next_available_date)
+   - next_available_date: nearest DailySchedule date where is_available=true, booked_count < max_patients, date >= today
 
-PART B — Daily Schedule Management (doctor-facing)
-4. GET    /api/v1/schedules/daily?from=YYYY-MM-DD&to=YYYY-MM-DD
-   - Return daily schedules in date range (max 31 days)
-   - verifyDoctor
+Validators: src/validators/search.validators.js
+Controller: src/controllers/search.controller.js
+Route: src/routes/search.routes.js
 
-5. PATCH  /api/v1/schedules/daily/:date/holiday
-   - Mark a specific date as holiday (is_holiday: true, clear all slots)
-   - Body: { is_holiday: boolean }
-   - verifyDoctor
-
-6. GET    /api/v1/schedules/:doctorId/available-dates?month=YYYY-MM
-   - Public endpoint: return list of dates in the month that have open slots
-   - Used by booking flow to show calendar
-
-PART C — Auto-generation Cron Job
-7. node-cron job: runs at 00:05 every day
-   - For each approved doctor, generate DailySchedule for (today + 30 days) if not already exists
-   - Copy from WeeklySchedule template for that day_of_week
-   - Skip holidays and dates already generated
-   - Log summary: doctors processed, schedules created, errors
-
-Validators: src/validators/schedule.validators.js
-Controller: src/controllers/schedule.controller.js
-Route: src/routes/schedule.routes.js
-Cron: src/jobs/scheduleGenerator.js (job definition) + register in server.js
-
-Register /api/v1/schedules on server.js.
-Update PROGRESS.md: mark Step 6 done, add Step 7 prompt.
+Register /api/v1/search on server.js.
+Update PROGRESS.md: mark Step 7 done, add Step 8 prompt.
 ```
