@@ -79,6 +79,40 @@ const verifyDoctorAny = asyncHandler(async (req, res, next) => {
   next();
 });
 
+// ─── User OR Doctor (for cancel / detail routes) ────────────────
+// Tries user JWT first, falls back to doctor JWT.
+// Sets req.user or req.doctor; throws 401 if neither works.
+const verifyUserOrDoctor = async (req, res, next) => {
+  const token = extractBearer(req);
+  if (!token) return next(new AppError('Authentication required', 401));
+
+  // Try user token
+  try {
+    const decoded = verifyUserToken(token);
+    const user = await User.findById(decoded.id);
+    if (user && !user.is_blocked) {
+      req.user = user;
+      return next();
+    }
+    if (user?.is_blocked) return next(new AppError('Account blocked. Contact support.', 403));
+  } catch { /* not a user token — try doctor */ }
+
+  // Try doctor token
+  try {
+    const decoded = verifyDoctorToken(token);
+    const doctor = await Doctor.findById(decoded.id);
+    if (!doctor) return next(new AppError('Doctor not found', 401));
+    if (doctor.is_blocked) return next(new AppError('Account blocked. Contact support.', 403));
+    if (doctor.approval_status !== 'approved') {
+      return next(new AppError('Doctor account pending approval', 403));
+    }
+    req.doctor = doctor;
+    return next();
+  } catch { /* not a doctor token either */ }
+
+  return next(new AppError('Invalid or expired token', 401));
+};
+
 // ─── Optional user auth (doesn't fail if no token) ──────────────
 const optionalUser = asyncHandler(async (req, res, next) => {
   const token = extractBearer(req);
@@ -94,4 +128,4 @@ const optionalUser = asyncHandler(async (req, res, next) => {
   next();
 });
 
-module.exports = { verifyUser, verifyDoctor, verifyDoctorAny, verifyAdmin, optionalUser };
+module.exports = { verifyUser, verifyDoctor, verifyDoctorAny, verifyAdmin, optionalUser, verifyUserOrDoctor };
